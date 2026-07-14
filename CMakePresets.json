@@ -1,0 +1,42 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "benchmark",
+      "displayName": "Benchmark (optimized, no sanitizers)",
+      "binaryDir": "${sourceDir}/build/benchmark",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug (ASan + UBSan)",
+      "binaryDir": "${sourceDir}/build/debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "MDFH_SANITIZER": "address"
+      }
+    },
+    {
+      "name": "debug-tsan",
+      "displayName": "Debug (TSan) — required for the SPSC ring buffer, Phase 5",
+      "binaryDir": "${sourceDir}/build/debug-tsan",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "MDFH_SANITIZER": "thread"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "benchmark", "configurePreset": "benchmark" },
+    { "name": "debug", "configurePreset": "debug" },
+    { "name": "debug-tsan", "configurePreset": "debug-tsan" }
+  ],
+  "testPresets": [
+    { "name": "benchmark", "configurePreset": "benchmark", "output": { "outputOnFailure": true } },
+    { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true } },
+    { "name": "debug-tsan", "configurePreset": "debug-tsan", "output": { "outputOnFailure": true } }
+  ]
+}
