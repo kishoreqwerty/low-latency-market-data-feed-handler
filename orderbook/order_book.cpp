@@ -1,6 +1,7 @@
 #include "orderbook/order_book.hpp"
 
 #include <algorithm>
+#include <memory>
 
 namespace mdfh::orderbook {
 
@@ -8,7 +9,8 @@ using protocol::OrderId;
 using protocol::Price;
 using protocol::Side;
 
-OrderBook::Level* OrderBook::level_for(Side side, Price price) {
+template <template <typename> class Alloc>
+typename OrderBookT<Alloc>::Level* OrderBookT<Alloc>::level_for(Side side, Price price) {
     if (side == Side::Buy) {
         auto it = bids_.find(price);
         return it != bids_.end() ? &it->second : nullptr;
@@ -17,13 +19,14 @@ OrderBook::Level* OrderBook::level_for(Side side, Price price) {
     return it != asks_.end() ? &it->second : nullptr;
 }
 
-void OrderBook::insert_resting_order(RestingOrder order) {
-    const OrderId order_id = order.order_id;
-    const Side side        = order.side;
-    const Price price      = order.price;
-    const protocol::Quantity quantity = order.quantity;
+template <template <typename> class Alloc>
+void OrderBookT<Alloc>::insert_resting_order(RestingOrder order) {
+    const OrderId order_id             = order.order_id;
+    const Side side                    = order.side;
+    const Price price                  = order.price;
+    const protocol::Quantity quantity  = order.quantity;
 
-    std::list<RestingOrder>::iterator it;
+    typename OrderList::iterator it;
     if (side == Side::Buy) {
         Level& level = bids_[price];
         level.orders.push_back(std::move(order));
@@ -39,7 +42,8 @@ void OrderBook::insert_resting_order(RestingOrder order) {
     order_index_[order_id] = OrderLocation{side, price, it};
 }
 
-void OrderBook::remove_resting_order(OrderId order_id) {
+template <template <typename> class Alloc>
+void OrderBookT<Alloc>::remove_resting_order(OrderId order_id) {
     auto idx_it              = order_index_.find(order_id);
     const OrderLocation& loc = idx_it->second;
 
@@ -62,7 +66,8 @@ void OrderBook::remove_resting_order(OrderId order_id) {
     order_index_.erase(idx_it);
 }
 
-std::expected<void, ApplyError> OrderBook::apply(const protocol::AddOrder& msg) {
+template <template <typename> class Alloc>
+std::expected<void, ApplyError> OrderBookT<Alloc>::apply(const protocol::AddOrder& msg) {
     if (order_index_.contains(msg.order_id)) {
         return std::unexpected(ApplyError::DuplicateOrderId);
     }
@@ -77,7 +82,8 @@ std::expected<void, ApplyError> OrderBook::apply(const protocol::AddOrder& msg) 
     return {};
 }
 
-std::expected<void, ApplyError> OrderBook::apply(const protocol::CancelOrder& msg) {
+template <template <typename> class Alloc>
+std::expected<void, ApplyError> OrderBookT<Alloc>::apply(const protocol::CancelOrder& msg) {
     if (!order_index_.contains(msg.order_id)) {
         return std::unexpected(ApplyError::OrderNotFound);
     }
@@ -86,7 +92,8 @@ std::expected<void, ApplyError> OrderBook::apply(const protocol::CancelOrder& ms
     return {};
 }
 
-std::expected<void, ApplyError> OrderBook::apply(const protocol::ExecuteOrder& msg) {
+template <template <typename> class Alloc>
+std::expected<void, ApplyError> OrderBookT<Alloc>::apply(const protocol::ExecuteOrder& msg) {
     auto idx_it = order_index_.find(msg.order_id);
     if (idx_it == order_index_.end()) {
         return std::unexpected(ApplyError::OrderNotFound);
@@ -110,7 +117,8 @@ std::expected<void, ApplyError> OrderBook::apply(const protocol::ExecuteOrder& m
     return {};
 }
 
-std::expected<void, ApplyError> OrderBook::apply(const protocol::ReplaceOrder& msg) {
+template <template <typename> class Alloc>
+std::expected<void, ApplyError> OrderBookT<Alloc>::apply(const protocol::ReplaceOrder& msg) {
     auto idx_it = order_index_.find(msg.old_order_id);
     if (idx_it == order_index_.end()) {
         return std::unexpected(ApplyError::OrderNotFound);
@@ -133,7 +141,8 @@ std::expected<void, ApplyError> OrderBook::apply(const protocol::ReplaceOrder& m
     return {};
 }
 
-BestBidAsk OrderBook::best_bid_ask() const {
+template <template <typename> class Alloc>
+BestBidAsk OrderBookT<Alloc>::best_bid_ask() const {
     BestBidAsk result;
     if (!bids_.empty()) {
         const auto& [price, level] = *bids_.begin();
@@ -146,7 +155,8 @@ BestBidAsk OrderBook::best_bid_ask() const {
     return result;
 }
 
-DepthSnapshot OrderBook::depth_snapshot(std::size_t levels) const {
+template <template <typename> class Alloc>
+DepthSnapshot OrderBookT<Alloc>::depth_snapshot(std::size_t levels) const {
     DepthSnapshot snapshot;
     snapshot.bids.reserve(std::min(levels, bids_.size()));
     snapshot.asks.reserve(std::min(levels, asks_.size()));
@@ -165,5 +175,8 @@ DepthSnapshot OrderBook::depth_snapshot(std::size_t levels) const {
 
     return snapshot;
 }
+
+template class OrderBookT<OrderPoolAllocator>;
+template class OrderBookT<std::allocator>;
 
 }  // namespace mdfh::orderbook
