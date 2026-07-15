@@ -30,6 +30,23 @@ allocator is evidently faster than macOS's for this alloc/free-heavy pattern,
 narrowing (not eliminating) the naive path's disadvantage. The zero-allocation
 property itself is platform-independent.
 
+**Note on historical numbers**: the Phase 3 commit message (`27437cd`) cites
+"23% faster than std::allocator," measured against a *different* pool
+implementation than the one above — at that point the pool was a single
+process-wide static singleton with no synchronization (the system was still
+single-threaded; Phase 7 hadn't introduced concurrent shard threads yet). A
+mutex was later added to that same global pool during Phase 7 development to
+make it safe for real concurrency, then removed entirely in favor of the
+current per-shard, `thread_local`-indexed design once sharding made a
+per-shard pool possible (see `orderbook/object_pool.hpp`'s header comment for
+the full history) — a shared pool behind a mutex reintroduced the exact
+cross-shard contention sharding exists to eliminate, one layer below the ring
+buffers. `bench/allocation_bench.cpp`'s workload itself hasn't changed since
+Phase 3 (confirmed via `git log`); every number in the table above reflects
+the current, mutex-free, per-shard pool — not the original singleton the
+Phase 3 commit message describes. If you see the two figures cited
+differently elsewhere (e.g. in git history), that's why.
+
 ## Phase 8 — CPU affinity / pinning benchmark
 
 `bench/mdfh_pinning_bench`: full live pipeline, 8 shards, 1,000,000 messages,
