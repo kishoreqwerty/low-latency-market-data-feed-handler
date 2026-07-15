@@ -37,6 +37,18 @@ Task read_packets_async(FeedGenerator& feed, ShardedPipeline& pipeline, Reactor&
     }
 
     producer_done.store(true, std::memory_order_release);
+
+    // Phase 12: every shard's decoder thread may currently be genuinely
+    // blocked in Shard::queue.wait_for_data() (see io/pipeline_runner.cpp),
+    // and a queue with nothing left coming will never see a push() again to
+    // wake it on its own -- explicitly notify each one so it promptly
+    // re-checks producer_done() instead of waiting for data that will never
+    // arrive. Mirrors the old poll-based design's behavior (every decoder
+    // would notice producer_done on its next ~50us tick regardless), just
+    // immediate instead of bounded by a poll interval.
+    for (std::size_t i = 0; i < pipeline.num_shards(); ++i) {
+        pipeline.shard(i).queue.notify_waiters();
+    }
 }
 
 }  // namespace mdfh::io

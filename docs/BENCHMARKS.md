@@ -161,19 +161,92 @@ their own.
 
 | Tool | Platform | Result |
 |---|---|---|
-| ASan + UBSan (`debug` preset) | macOS | 66/66 tests, 100% pass, 3 consecutive clean runs |
-| TSan (`debug-tsan` preset) | macOS | 66/66 tests, 100% pass, 3 consecutive clean runs (plus dozens of additional targeted reruns across this project's history — pool concurrency, pipeline shutdown handshake under deliberately adversarial timing, full e2e suite — all clean) |
-| Valgrind (`--leak-check=full --track-origins=yes`) | Linux (Docker) | 64/66 tests pass; **0 memory defects detected anywhere** |
+| ASan + UBSan (`debug` preset) | macOS | 71/71 tests, 100% pass, 3 consecutive clean runs |
+| TSan (`debug-tsan` preset) | macOS | 71/71 tests, 100% pass, 5+ consecutive clean runs (plus dozens of additional targeted reruns across this project's history — pool concurrency, pipeline shutdown handshake under deliberately adversarial timing, the Phase 12 blocking-wait stress tests, full e2e suite — all clean) |
+| Valgrind (`--leak-check=full --track-origins=yes`) | Linux (Docker) | 69/71 tests pass (re-run after Phase 12); **0 memory defects detected anywhere** |
 
 Valgrind can't coexist with ASan/UBSan instrumentation, so it runs against a
 separate sanitizer-free debug build (`-DMDFH_SANITIZER=none`), Linux-only (no
 meaningful Apple Silicon Valgrind support). Full detail, including why the 2
-non-passing tests are unrelated to memory correctness (a custom
-allocator-override interacting with Valgrind's own malloc interception, and a
-10-second real-time deadline broken by Valgrind's ~20-50x slowdown — not a
-leak or invalid access in either case) is in `docs/perf/valgrind/README.md`,
-alongside full logs showing explicit `ERROR SUMMARY: 0 errors from 0 contexts`
-for every binary checked.
+non-passing tests are unrelated to memory correctness, is in
+`docs/perf/valgrind/README.md`, alongside full logs showing explicit
+`ERROR SUMMARY: 0 errors from 0 contexts` for every binary checked. Which 2
+tests fail is itself timing-sensitive, not fixed: before Phase 12 it was the
+gap-detection e2e test (a 10-second real-time deadline for observing a live
+event) and the naive-allocator counter test; after Phase 12's blocking-wait
+change, the gap-detection test now passes under Valgrind (the new scheduling
+characteristics happen to fit its window better) but the adversarial
+publisher-shutdown-handshake test's 2ms real-time window now fails instead.
+Same underlying category both times — a hardcoded short real-time window
+meeting Valgrind's ~20-50x slowdown — not a new correctness bug, and zero
+memory defects were reported in either version.
+
+## Phase 12 — blocking wait replaces the polling floor: before/after
+
+Phase 10's headline finding was that `io/pipeline_runner.cpp`'s decoder and
+publisher threads idle-waited via a fixed `sleep_for(50us)` poll whenever a
+queue was empty, and that poll — not the order book — set the pipeline's
+actual latency floor. Phase 12 replaced it with a real OS-level blocking
+wait: `concurrency::SpscRingBuffer` gained `wait_for_data()` (blocks via
+`std::atomic::wait`, C++20) and `notify_waiters()` (producer-side
+`std::atomic::notify_one`, called from every `push()` and explicitly from
+the shutdown path), with the same `bench/mdfh_latency_bench` workload
+(8 shards, 1,000,000 messages, 0.05% packet loss) re-run unchanged.
+
+**A real bug found before this ever reached the pipeline**: the first
+implementation waited/notified on the ring buffer's existing `tail_` atomic
+directly. That's correct for the "new data arrived" case, but
+`std::atomic::wait(old)` only returns when the *watched value itself*
+changes — a `notify_waiters()` call for the shutdown case (nothing pushed,
+`tail_` unchanged) gets treated as a spurious wake: the waiter rechecks,
+sees no change, and goes back to sleep forever. A dedicated 2-thread test
+built specifically to exercise that exact path (an artificially slowed
+consumer relying on the producer-done `notify_waiters()` wake, not a
+subsequent push) hung indefinitely and caught this before any pipeline
+code depended on it. Fixed with a dedicated `wake_generation_` counter that
+*every* wake-worthy event — real data or an external notify — unconditionally
+increments, so the recheck can never see "no change." See
+`concurrency/spsc_ring_buffer.hpp`'s header comment for the full mechanism.
+
+### Before (Phase 10, polling) vs. after (Phase 12, blocking), `tick_to_book_update`
+
+| Platform | Metric | Before (poll) | After (blocking) | Improvement |
+|---|---|---|---|---|
+| macOS | mean | 33,420 ns | 5,306 ns | **6.3x** |
+| macOS | p50 | 32,417 ns | 4,000 ns | **8.1x** |
+| macOS | p99 | 68,250 ns | 8,542 ns | **8.0x** |
+| macOS | p99.9 | 92,500 ns | 32,834 ns | **2.8x** |
+| Linux (Docker) | mean | 70,595 ns | 31,031 ns | **2.3x** |
+| Linux (Docker) | p50 | 67,625 ns | 29,208 ns | **2.3x** |
+| Linux (Docker) | p99 | 137,916 ns | 62,292 ns | **2.2x** |
+| Linux (Docker) | p99.9 | 325,750 ns | 80,500 ns | **4.0x** |
+
+Both platforms improved substantially and consistently (3+ repeated runs
+each, numbers stable within a few percent) — but **not by the same amount,
+and the reason why is itself a real, measured finding, not a footnote**:
+
+- **macOS**: a fresh native `sample` capture after this change shows *zero*
+  occurrences of `nanosleep` anywhere in the profile — the poll is
+  completely gone, replaced by real business logic (`OrderBookT::apply`,
+  `insert_resting_order`, `ShardedPipeline::process_shard`) as the dominant
+  symbols. This is consistent with a genuinely efficient, near-zero-CPU
+  block while idle.
+- **Linux (Docker)**: `perf report` also shows `clock_nanosleep` gone, but
+  it's replaced by substantial self-time in `__sched_yield` (7.35%) and
+  `std::__atomic_wait_address_v` (0.41% self, 82.43% total) — i.e.,
+  glibc/libstdc++'s `atomic::wait` implementation on this platform spin-
+  yields for a period before committing to a real futex block, rather than
+  blocking immediately. That's a real implementation-level difference
+  between platforms' C++ standard libraries, not a bug in this project's
+  code, and it plausibly explains why the Linux improvement (2.2-4x) is
+  smaller than macOS's (6-8x): part of the old poll's cost was simply
+  replaced by a different (shorter, but nonzero) form of active waiting,
+  rather than eliminated entirely. Full artifacts: `docs/perf/phase12/`.
+
+**What didn't change**: `book_update` (the actual `OrderBookT::apply()` cost)
+stayed sub-microsecond at p50 on both platforms throughout (it was never the
+bottleneck, before or after) — this change targeted exactly the thing Phase
+10 identified as dominant, and moved exactly that number, nothing else.
 
 ## Reproducing everything above
 

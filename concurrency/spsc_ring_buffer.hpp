@@ -56,6 +56,57 @@
 // for similar overwrite-on-full scenarios elsewhere (e.g. the Linux kernel) --
 // not a general-purpose lock. It is lock-free in the common (no in-flight
 // collision) case; only that rare collision window spins.
+//
+// Phase 12: blocking consumer wait via std::atomic::wait/notify (C++20).
+//
+// Phase 10's latency instrumentation found that this pipeline's actual
+// tick-to-book-update latency floor (~30-70us) was set almost entirely by
+// the decoder/publisher threads' idle-wait poll (`sleep_for(50us)` in
+// io/pipeline_runner.cpp when a queue was empty), not by anything in this
+// ring buffer or the order book -- confirmed three independent ways (see
+// docs/BENCHMARKS.md). wait_for_data()/notify_waiters() below replace that
+// fixed-interval poll with a real OS-level block (futex on Linux, ulock on
+// macOS, both reachable via std::atomic::wait/notify), so a consumer with
+// nothing to do actually sleeps until woken instead of waking up to check
+// every 50us regardless.
+//
+// Deliberately kept OUT of try_pop()/push()'s core contract: wait_for_data()
+// is a separate, optional consumer-side call, and notify_waiters() is a
+// separate producer-side (or external) call -- neither changes what
+// try_pop() or push() themselves return, so every existing single-threaded
+// test and the drop-oldest race-safety reasoning above is untouched. push()
+// unconditionally calls tail_.notify_one() after its final store; that is
+// the ONLY change to push() itself.
+//
+// Why waiting/notifying on tail_ ITSELF doesn't work, and wake_generation_
+// exists instead -- found empirically, not by inspection, by a dedicated
+// 2-thread test that deliberately forced the shutdown-notify path
+// (test_spsc_ring_buffer_stress.cpp's "slowed consumer relies on the
+// producer-done notify_waiters() wake" test hung indefinitely before this
+// fix):
+//
+// std::atomic<T>::wait(old) is specified as a LOOP: compare the atomic's
+// current value to `old`; if different, return; if the same, block until
+// notified or spuriously woken, THEN GO BACK AND COMPARE AGAIN. That
+// recheck is the whole point (it's what makes the check-then-block
+// sequence race-free against a concurrent push()) -- but it also means a
+// notify_one()/notify_all() call that does NOT change the watched value
+// accomplishes nothing: the woken waiter re-compares, finds the value
+// still equal to `old`, and goes right back to sleep. notify_waiters()
+// exists specifically for the case where nothing was pushed (e.g. "the
+// producer just finished, wake up and check your own shutdown flag") --
+// tail_ genuinely does NOT change in that case, so waiting/notifying on
+// tail_ itself cannot ever wake that call.
+//
+// wake_generation_ fixes this by being a value that is UNCONDITIONALLY
+// incremented on every event that should wake a waiter, whether or not
+// tail_ changed: both push() (real data) and notify_waiters() (an
+// external/shutdown signal) increment it before notifying, so `wait_for_
+// data()`'s recheck-after-wake always sees a genuinely different value
+// and correctly returns instead of re-sleeping. tail_/head_ themselves are
+// untouched by any of this -- they remain exactly the producer/consumer
+// index pair the drop-oldest reasoning above depends on; wake_generation_
+// is purely a wake signal layered on top, never consulted for queue logic.
 
 #include <array>
 #include <atomic>
@@ -137,6 +188,19 @@ public:
 
         target.value = item;
         tail_.store(tail + 1, std::memory_order_release);
+
+        // Wake a consumer blocked in wait_for_data(), if any. Unconditional
+        // (not gated on "is anyone actually waiting") -- notify_one() on an
+        // atomic nobody is waiting on is a cheap, non-blocking check on both
+        // target platforms, and SPSC means at most one thread could ever be
+        // waiting here, so there's no "wake the wrong one" cost to avoid
+        // either. Signaled via wake_generation_, not tail_ -- see this
+        // file's header comment for why waiting/notifying on tail_ itself
+        // doesn't work for the notify_waiters() (no-new-data) case, which
+        // is why this increments a value that ALWAYS changes rather than
+        // notifying on tail_ directly.
+        wake_generation_.fetch_add(1, std::memory_order_release);
+        wake_generation_.notify_one();
     }
 
     // Consumer-side. Returns false if the buffer is currently empty (or if
@@ -188,6 +252,54 @@ public:
 
     static constexpr std::size_t capacity() noexcept { return Capacity; }
 
+    // Blocks (a real OS-level wait, not a spin or a timed poll) until
+    // either an item becomes available or notify_waiters() is called
+    // externally. Does not itself pop anything, and does not know or care
+    // about any shutdown condition -- purely a wake primitive. The caller
+    // decides what to do after waking: check try_pop() again, check its own
+    // shutdown flag, or both (see io/pipeline_runner.cpp's decoder/publisher
+    // loops for the actual protocol built on top of this).
+    //
+    // Waits on wake_generation_, NOT tail_ -- see this file's header
+    // comment for why: push() and notify_waiters() both unconditionally
+    // increment wake_generation_ before notifying, so it's guaranteed to
+    // differ from any previously-observed snapshot on every wake-worthy
+    // event, including the "nothing was pushed, just wake up" case tail_
+    // alone cannot signal. Race-free by the same construction as before
+    // (re-checking immediately before the wait() call, then passing that
+    // SAME snapshot to wait(), so a concurrent increment can never be
+    // missed) -- just applied to a value that always changes when it should,
+    // rather than one (tail_) that sometimes doesn't.
+    void wait_for_data() const noexcept {
+        if (tail_.load(std::memory_order_acquire) != head_.load(std::memory_order_relaxed)) {
+            return;  // already something to read -- don't block at all
+        }
+        const std::uint64_t observed_generation = wake_generation_.load(std::memory_order_acquire);
+        // Re-check emptiness against the CURRENT queue state after
+        // snapshotting the generation, in case a push() completed (and
+        // bumped the generation) between the check above and this
+        // snapshot -- otherwise this could snapshot a generation that's
+        // already stale relative to data that's already sitting there.
+        if (tail_.load(std::memory_order_acquire) != head_.load(std::memory_order_relaxed)) {
+            return;
+        }
+        wake_generation_.wait(observed_generation, std::memory_order_acquire);
+    }
+
+    // Wakes any thread currently blocked in wait_for_data() on this queue,
+    // even though nothing was actually pushed -- needed so a consumer can
+    // observe an externally-signaled condition (e.g. "the producer just
+    // finished, stop waiting and check your own shutdown flag") promptly,
+    // rather than only on the next real push(). Safe to call whether or not
+    // anything is currently waiting. Must increment wake_generation_ (not
+    // just notify) -- see this file's header comment for why a notify with
+    // no corresponding value change is silently ineffective against
+    // atomic::wait's recheck-on-wake semantics.
+    void notify_waiters() noexcept {
+        wake_generation_.fetch_add(1, std::memory_order_release);
+        wake_generation_.notify_one();
+    }
+
 private:
     std::array<Slot, Capacity> buffer_;  // fixed-size, no heap allocation
 
@@ -200,6 +312,14 @@ private:
     alignas(64) std::atomic<std::size_t> tail_{0};
     alignas(64) std::atomic<std::size_t> head_{0};
     alignas(64) std::atomic<std::uint64_t> dropped_updates_total_{0};
+
+    // Phase 12: the actual value wait_for_data()/notify_waiters() wait and
+    // notify on -- see this file's header comment for why it can't just be
+    // tail_. On its own cache line for the same reason as the others: it's
+    // written by every push() (producer) and every notify_waiters() call
+    // (whichever thread signals shutdown, typically the far-side producer
+    // of the NEXT stage), read/waited-on by the consumer.
+    alignas(64) std::atomic<std::uint64_t> wake_generation_{0};
 };
 
 }  // namespace mdfh::concurrency

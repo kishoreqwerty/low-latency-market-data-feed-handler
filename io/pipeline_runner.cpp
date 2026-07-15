@@ -1,7 +1,5 @@
 #include "io/pipeline_runner.hpp"
 
-#include <chrono>
-
 #include "affinity/thread_affinity.hpp"
 #include "io/async_network_reader.hpp"
 
@@ -110,7 +108,13 @@ void PipelineRunner::start(bool enable_affinity) {
                         break;
                     }
                 } else {
-                    std::this_thread::sleep_for(std::chrono::microseconds(50));
+                    // Phase 12: a real OS-level block (futex/ulock via
+                    // std::atomic::wait), not the old fixed sleep_for(50us)
+                    // poll -- see concurrency/spsc_ring_buffer.hpp. Woken by
+                    // either the network I/O thread's next push() to this
+                    // shard's queue, or its notify_waiters() call once
+                    // producer_done_ is set (see async_network_reader.cpp).
+                    pipeline_.shard(i).queue.wait_for_data();
                 }
             }
             // Last act, mirroring producer_done_ one stage upstream: tells
@@ -118,6 +122,11 @@ void PipelineRunner::start(bool enable_affinity) {
             // decoder will ever push to Shard::output_queue, so its own
             // final drain-and-exit check is safe to trust.
             shard_decoder_done_[i].store(true, std::memory_order_release);
+            // This shard's publisher thread may be genuinely blocked in
+            // output_queue.wait_for_data() with nothing left coming --
+            // wake it so it promptly re-checks shard_decoder_done_[i]
+            // instead of waiting for a push() that will never happen.
+            pipeline_.shard(i).output_queue.notify_waiters();
         });
         if (enable_affinity) {
             ++affinity_hints_attempted_;
@@ -141,7 +150,12 @@ void PipelineRunner::start(bool enable_affinity) {
                         break;
                     }
                 } else {
-                    std::this_thread::sleep_for(std::chrono::microseconds(50));
+                    // Phase 12: real OS-level block, same mechanism and
+                    // reasoning as the decoder loop above -- woken by this
+                    // shard's decoder thread's next delta push(), or its
+                    // notify_waiters() call once shard_decoder_done_[i] is
+                    // set.
+                    pipeline_.shard(i).output_queue.wait_for_data();
                 }
             }
         });

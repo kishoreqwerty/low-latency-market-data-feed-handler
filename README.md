@@ -59,43 +59,66 @@ memory — no cross-shard locking anywhere in the steady-state path.
 
 ---
 
-## Headline finding: the polling loop, not the algorithm, sets the latency floor
+## Headline finding: the polling loop set the latency floor — found, then fixed
 
-The single most important thing Phase 10's instrumentation found: **the order
-book itself is fast — sub-microsecond at p50 on both platforms it was
-measured on.** What actually shows up in tick-to-book-update latency is the
-pipeline's own idle-wait polling loop, and this was confirmed **three
-independent ways**, not asserted from one measurement:
+**The order book itself was always fast** — sub-microsecond at p50 on both
+platforms it was measured on. Phase 10's instrumentation found that what
+actually showed up in tick-to-book-update latency was something else
+entirely: the pipeline's own idle-wait polling loop. Phase 12 then replaced
+that loop with a real blocking wait and re-measured, confirming the
+diagnosis by fixing it and watching the number move.
+
+**The diagnosis** (Phase 10), confirmed **three independent ways**, not
+asserted from one measurement:
 
 1. **Stage-boundary latency instrumentation** (`bench/mdfh_latency_bench`):
-   `input_queue_wait` and `output_queue_wait` — the time a message spends
-   sitting in a shard's ring buffer before its consumer thread gets to it —
-   average **~32µs on macOS / ~70µs on Linux**, closely tracking the decoder
-   and publisher threads' own `sleep_for(50µs)` idle-poll interval
-   (`io/pipeline_runner.cpp`) almost exactly. Meanwhile `book_update` — the
-   actual `OrderBookT::apply()` call — averages **333ns / 792ns at p50**.
+   `input_queue_wait`/`output_queue_wait` — time a message spent sitting in a
+   shard's ring buffer before its consumer thread got to it — averaged
+   **~32µs on macOS / ~70µs on Linux**, closely tracking the decoder and
+   publisher threads' `sleep_for(50µs)` idle-poll interval almost exactly.
+   Meanwhile `book_update` (the actual `OrderBookT::apply()` call) averaged
+   **333ns / 792ns at p50**.
 2. **Linux CPU sampling** (`perf record -F 999 -g`): **33.46%** of all
-   samples land in `clock_nanosleep`, the single largest line item in the
-   entire profile — bigger than every order-book function combined.
+   samples landed in `clock_nanosleep` — the single largest line item in the
+   entire profile, bigger than every order-book function combined.
 3. **Native macOS CPU sampling** (`/usr/bin/sample`, no container or VM
-   involved at all): independently shows the same `nanosleep` dominance on
-   real, non-virtualized hardware — ruling out "this is just a Docker
-   artifact" as the explanation.
+   involved): independently showed the same `nanosleep` dominance on real
+   hardware, ruling out "this is just a Docker artifact."
 
-**What this means concretely:** this pipeline uses a polling decoder/publisher
-loop (check the queue, sleep 50µs if empty, repeat) rather than a
-blocking/wake-on-push design. That's a deliberate, simple, correct choice for
-a portfolio-scale project — but it puts a real, measured floor of roughly
-30-70µs on best-case per-message latency that has nothing to do with the
-order book, the pools, or the ring buffers, and everything to do with how
-long a decoder thread can sleep before it looks again. A production system
-targeting genuinely single-digit-microsecond latency would replace this with
-a busy-spin or futex/eventfd-wake consumer loop; that tradeoff (CPU burn vs.
-polling latency) is exactly the kind of thing worth being explicit about
-rather than leaving implicit in a benchmark number nobody explained.
+**The fix** (Phase 12): `concurrency/SpscRingBuffer` gained a real OS-level
+blocking wait (`wait_for_data()`/`notify_waiters()`, built on C++20's
+`std::atomic::wait`/`notify` — futex on Linux, `ulock` on macOS), replacing
+`io/pipeline_runner.cpp`'s `sleep_for(50µs)` poll entirely. Applying the same
+Phase 5-level rigor to new synchronization surface caught a real bug before
+it ever reached the pipeline: `std::atomic::wait(old)` only returns when the
+*watched value itself* changes, so notifying a waiter for the shutdown case
+(nothing pushed, the ring buffer's tail index unchanged) was silently
+ineffective — a dedicated 2-thread test built to exercise exactly that path
+hung indefinitely, caught by TSan-preset testing before it ever touched
+`PipelineRunner`. Fixed with a dedicated generation counter that every
+wake-worthy event unconditionally increments (see
+`concurrency/spsc_ring_buffer.hpp`'s header comment for the full mechanism).
 
-See [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) and the
-[flame graph report](docs/perf/latency_report.html) for the full breakdown.
+**The result**, same workload, same both platforms:
+
+| Platform | `tick_to_book_update` | Before (poll) | After (blocking) | Improvement |
+|---|---|---|---|---|
+| macOS | mean | 33,420 ns | 5,306 ns | **6.3x** |
+| macOS | p50 | 32,417 ns | 4,000 ns | **8.1x** |
+| Linux (Docker) | mean | 70,595 ns | 31,031 ns | **2.3x** |
+| Linux (Docker) | p50 | 67,625 ns | 29,208 ns | **2.3x** |
+
+Both platforms improved substantially, but by different amounts — itself a
+real, measured finding: a post-fix macOS `sample` capture shows **zero**
+`nanosleep` anywhere in the profile (genuinely near-zero-CPU blocking), while
+Linux's `perf` profile shows the poll replaced by meaningful time in
+`__sched_yield`/`std::__atomic_wait_address_v` — glibc's `atomic::wait`
+spin-yields for a period before committing to a real futex block, unlike
+macOS's implementation. A platform difference in the C++ standard library,
+not a bug in this project.
+
+See [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) (Phase 10 and Phase 12
+sections) and [`docs/perf/`](docs/perf/) for the full breakdown and artifacts.
 
 ---
 
@@ -115,6 +138,7 @@ just read.
 | **Explicit STALE marking on gap detection** | Silently continue with best-effort state | A silently wrong book is worse than a visibly stale one — a downstream consumer can pause trading on that symbol rather than act on bad data unknowingly | Exercised live, under real concurrent load, by the Phase 7 e2e test: a gap is observed and marked STALE *while other shards are still actively processing*, not only after the fact |
 | **CPU-pinned threads per stage** | Let the OS scheduler place threads | Reduces cache-line bouncing and context-switch jitter for producer/consumer thread pairs that share data | Measured, not assumed, on both platforms — see next paragraph, this is the one decision whose *measured* payoff was smaller than expected |
 | **Coroutines for network I/O** | Thread-per-connection or blocking I/O | Non-blocking I/O avoids a thread idling on a blocking read; coroutines keep the suspend/resume mechanism readable, at the cost of some C++20 learning curve | Verified clean shutdown under every tested scenario — stop mid-flight, stop before a coroutine starts, destructor-only cleanup — with no orphaned coroutine frames, under ASan across all of them |
+| **Blocking consumer wait via `std::atomic::wait`/`notify`** (Phase 12) | Keep the fixed `sleep_for(50µs)` poll | A poll bounds best-case latency to roughly the poll interval regardless of how fast the rest of the pipeline is; a real OS-level block wakes as soon as data (or a shutdown signal) actually arrives | tick-to-book-update p50 improved **8.1x on macOS, 2.3x on Linux** for the identical workload — see the headline finding above. Also surfaced a real missed-wakeup bug (notifying on a value that hadn't changed) via a dedicated 2-thread test *before* it reached the pipeline, not after |
 
 **On CPU pinning specifically** — this is the one row where the honest answer
 is "the mechanism differs by platform, and neither showed a measurable win
@@ -144,11 +168,12 @@ Full tables, both platforms, every stage: [`docs/BENCHMARKS.md`](docs/BENCHMARKS
 | Pool-backed allocation, 4M messages | 66.59 ms, **0** heap calls | 70.42 ms, **0** heap calls |
 | Naive allocation, same workload | 119.15 ms, 4,000,000 heap calls | 83.58 ms, 4,000,000 heap calls |
 | Affinity hints accepted | 0 / 45 (`KERN_NOT_SUPPORTED`) | 45 / 45 (genuine hard pin) |
-| tick → book update, p50 | 32,417 ns | 67,625 ns |
+| tick → book update, p50 (poll, Phase 10) | 32,417 ns | 67,625 ns |
+| tick → book update, p50 (blocking, Phase 12) | **4,000 ns** (8.1x) | **29,208 ns** (2.3x) |
 | book update alone, p50 | 333 ns | 792 ns |
-| ASan + UBSan | 66/66 tests, 3 clean runs | — |
-| TSan | 66/66 tests, 3 clean runs | — |
-| Valgrind (`--leak-check=full`) | — | 64/66 tests, **0 memory defects** |
+| ASan + UBSan | 71/71 tests, 3 clean runs | — |
+| TSan | 71/71 tests, 3 clean runs | — |
+| Valgrind (`--leak-check=full`) | — | see `docs/BENCHMARKS.md` |
 
 ---
 
@@ -258,7 +283,7 @@ lines to a file per shard instead, if you'd rather `tail -f` it — see
 **3. Run the full test suite** (correctness, not performance):
 
 ```sh
-ctest --preset benchmark   # 66 tests, optimized build, ~11s
+ctest --preset benchmark   # 71 tests, optimized build, ~14s
 ```
 
 ---

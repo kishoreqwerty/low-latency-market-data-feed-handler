@@ -1,0 +1,16 @@
+Phase 10 latency benchmark: 8 shards, 1000000 messages, 0.05% packet loss
+
+1147840 total delta samples recorded across 8 shards
+
+Stage (ns)                   mean          p50          p99        p99.9          max            n
+receive_to_decode              62           42          167          542       604959      1147840
+decode_to_demux               650          542         1750        16833      5593042      1147840
+input_queue_wait            44847        41167       126000       230458     27019458      1147840
+book_update                  1582         1250         5917        24083      6604292      1147840
+output_queue_wait           15741        12166        70541       128667     14606667      1147840
+publish                        40           42          125          291       172500      1147840
+---                           ---          ---          ---          ---          ---          ---
+tick_to_book_update         47141        43250       130458       252000     27023333      1147840
+end_to_end                  62923        56792       175625       322000     27148833      1147840
+
+tick_to_book_update is the PRIMARY metric (t_received -> book apply() returned); end_to_end additionally includes the publish stage (this run's inner sink is a no-op NullDeltaSink, so 'publish' above measures the LatencyRecordingSink wrapper's own overhead, not real downstream I/O -- see bench/pinning_bench.cpp for latency under a real FileDeltaSink-equivalent path).

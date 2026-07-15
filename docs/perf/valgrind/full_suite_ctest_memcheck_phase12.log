@@ -1,0 +1,208 @@
+build exit=0
+   Site: 9495f6b5c844
+   Build name: Linux-g++
+Create new tag: 20260715-1904 - Experimental
+Memory check project /workspace/build/valgrind
+      Start  1: AddOrder round-trips through encode/decode
+ 1/71 MemCheck  #1: AddOrder round-trips through encode/decode ............................................................................................................................   Passed    0.49 sec
+      Start  2: CancelOrder round-trips through encode/decode
+ 2/71 MemCheck  #2: CancelOrder round-trips through encode/decode .........................................................................................................................   Passed    0.49 sec
+      Start  3: ExecuteOrder round-trips through encode/decode
+ 3/71 MemCheck  #3: ExecuteOrder round-trips through encode/decode ........................................................................................................................   Passed    0.55 sec
+      Start  4: ReplaceOrder round-trips through encode/decode
+ 4/71 MemCheck  #4: ReplaceOrder round-trips through encode/decode ........................................................................................................................   Passed    0.50 sec
+      Start  5: encode reports BufferTooSmall instead of overflowing the caller's buffer
+ 5/71 MemCheck  #5: encode reports BufferTooSmall instead of overflowing the caller's buffer ..............................................................................................   Passed    0.54 sec
+      Start  6: decode rejects a message truncated mid-payload
+ 6/71 MemCheck  #6: decode rejects a message truncated mid-payload ........................................................................................................................   Passed    0.55 sec
+      Start  7: decode rejects a message shorter than the header itself
+ 7/71 MemCheck  #7: decode rejects a message shorter than the header itself ...............................................................................................................   Passed    0.48 sec
+      Start  8: decode rejects an invalid message type byte
+ 8/71 MemCheck  #8: decode rejects an invalid message type byte ...........................................................................................................................   Passed    0.48 sec
+      Start  9: decode rejects a length field inconsistent with its message type
+ 9/71 MemCheck  #9: decode rejects a length field inconsistent with its message type ......................................................................................................   Passed    0.50 sec
+      Start 10: OrderBook reconstructs price-time priority through a scripted sequence
+10/71 MemCheck #10: OrderBook reconstructs price-time priority through a scripted sequence ................................................................................................   Passed    0.57 sec
+      Start 11: OrderBook rejects cancelling a non-existent order and leaves state unchanged
+11/71 MemCheck #11: OrderBook rejects cancelling a non-existent order and leaves state unchanged ..........................................................................................   Passed    0.57 sec
+      Start 12: OrderBook rejects executing more quantity than remains and leaves the order unchanged
+12/71 MemCheck #12: OrderBook rejects executing more quantity than remains and leaves the order unchanged .................................................................................   Passed    0.56 sec
+      Start 13: OrderBook rejects an AddOrder that reuses a resting order_id
+13/71 MemCheck #13: OrderBook rejects an AddOrder that reuses a resting order_id ..........................................................................................................   Passed    0.57 sec
+      Start 14: OrderBook rejects a ReplaceOrder referencing an unknown old_order_id
+14/71 MemCheck #14: OrderBook rejects a ReplaceOrder referencing an unknown old_order_id ..................................................................................................   Passed    0.52 sec
+      Start 15: OrderBook rejects a ReplaceOrder that introduces a duplicate new_order_id
+15/71 MemCheck #15: OrderBook rejects a ReplaceOrder that introduces a duplicate new_order_id .............................................................................................   Passed    0.56 sec
+      Start 16: FixedBlockPool hands out distinct blocks up to capacity, then throws
+16/71 MemCheck #16: FixedBlockPool hands out distinct blocks up to capacity, then throws ..................................................................................................   Passed    0.52 sec
+      Start 17: FixedBlockPool reuses a block after it's freed
+17/71 MemCheck #17: FixedBlockPool reuses a block after it's freed ........................................................................................................................   Passed    0.48 sec
+      Start 18: PoolAllocator backs a std::list with zero heap allocations
+18/71 MemCheck #18: PoolAllocator backs a std::list with zero heap allocations ............................................................................................................   Passed    0.49 sec
+      Start 19: OrderBook (pool-backed) causes zero heap allocations for steady-state message traffic
+19/71 MemCheck #19: OrderBook (pool-backed) causes zero heap allocations for steady-state message traffic .................................................................................   Passed    0.56 sec
+      Start 20: NaiveOrderBook (std::allocator) causes real heap allocations for the same traffic
+20/71 MemCheck #20: NaiveOrderBook (std::allocator) causes real heap allocations for the same traffic .....................................................................................***Failed    0.63 sec
+Filters: "NaiveOrderBook (std::allocator) causes real heap allocations for the same traffic"
+Randomness seeded to: 826404655
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+mdfh_orderbook_test is a Catch2 v3.7.1 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+NaiveOrderBook (std::allocator) causes real heap allocations for the same
+traffic
+-------------------------------------------------------------------------------
+/workspace/orderbook/test_object_pool.cpp:147
+...............................................................................
+
+/workspace/orderbook/test_object_pool.cpp:191: FAILED:
+  REQUIRE( new_call_count() > 0 )
+with expansion:
+  0 > 0
+
+===============================================================================
+test cases:   1 |   0 passed | 1 failed
+assertions: 301 | 300 passed | 1 failed
+
+
+      Start 21: A single shard's pool capacity covers that shard's full expected symbol load
+21/71 MemCheck #21: A single shard's pool capacity covers that shard's full expected symbol load ..........................................................................................   Passed    2.29 sec
+      Start 22: Different shards' pools are genuinely independent instances, not shared capacity
+22/71 MemCheck #22: Different shards' pools are genuinely independent instances, not shared capacity ......................................................................................   Passed    3.57 sec
+      Start 23: Per-shard pools need no synchronization: many threads hammering their own shard's pool concurrently
+23/71 MemCheck #23: Per-shard pools need no synchronization: many threads hammering their own shard's pool concurrently ...................................................................   Passed    3.39 sec
+      Start 24: GapDetector treats the first observed seq_num as in-order
+24/71 MemCheck #24: GapDetector treats the first observed seq_num as in-order .............................................................................................................   Passed    0.48 sec
+      Start 25: GapDetector stays LIVE through a contiguous sequence
+25/71 MemCheck #25: GapDetector stays LIVE through a contiguous sequence ..................................................................................................................   Passed    0.48 sec
+      Start 26: GapDetector flags a gap, marks STALE, and a resync clears it back to LIVE
+26/71 MemCheck #26: GapDetector flags a gap, marks STALE, and a resync clears it back to LIVE .............................................................................................   Passed    0.48 sec
+      Start 27: GapDetector counts multiple distinct gaps
+27/71 MemCheck #27: GapDetector counts multiple distinct gaps .............................................................................................................................   Passed    0.47 sec
+      Start 28: GapDetector registers a large gap the same way as a single missing message
+28/71 MemCheck #28: GapDetector registers a large gap the same way as a single missing message ............................................................................................   Passed    0.47 sec
+      Start 29: GapDetector reports duplicate/out-of-order-behind seq_nums without flagging a gap
+29/71 MemCheck #29: GapDetector reports duplicate/out-of-order-behind seq_nums without flagging a gap .....................................................................................   Passed    0.48 sec
+      Start 30: SpscRingBuffer pop on an empty buffer returns false
+30/71 MemCheck #30: SpscRingBuffer pop on an empty buffer returns false ...................................................................................................................   Passed    0.47 sec
+      Start 31: SpscRingBuffer preserves FIFO order for a simple push/pop sequence
+31/71 MemCheck #31: SpscRingBuffer preserves FIFO order for a simple push/pop sequence ....................................................................................................   Passed    0.47 sec
+      Start 32: SpscRingBuffer fills exactly to capacity without dropping anything
+32/71 MemCheck #32: SpscRingBuffer fills exactly to capacity without dropping anything ....................................................................................................   Passed    0.47 sec
+      Start 33: SpscRingBuffer drops exactly the oldest entry on a single-item overflow
+33/71 MemCheck #33: SpscRingBuffer drops exactly the oldest entry on a single-item overflow ...............................................................................................   Passed    0.47 sec
+      Start 34: SpscRingBuffer wraps around correctly across many cycles
+34/71 MemCheck #34: SpscRingBuffer wraps around correctly across many cycles ..............................................................................................................   Passed    0.47 sec
+      Start 35: SpscRingBuffer drop-oldest keeps only the newest Capacity items after a large overflow
+35/71 MemCheck #35: SpscRingBuffer drop-oldest keeps only the newest Capacity items after a large overflow ................................................................................   Passed    0.47 sec
+      Start 36: SpscRingBuffer handles repeated fill-drain cycles interleaved with overflow
+36/71 MemCheck #36: SpscRingBuffer handles repeated fill-drain cycles interleaved with overflow ...........................................................................................   Passed    0.47 sec
+      Start 37: SpscRingBuffer wait_for_data() returns immediately when data is already present
+37/71 MemCheck #37: SpscRingBuffer wait_for_data() returns immediately when data is already present .......................................................................................   Passed    0.47 sec
+      Start 38: SpscRingBuffer notify_waiters() with nobody waiting is a safe no-op
+38/71 MemCheck #38: SpscRingBuffer notify_waiters() with nobody waiting is a safe no-op ...................................................................................................   Passed    0.48 sec
+      Start 39: SpscRingBuffer wait_for_data() blocks until a genuine push() wakes it, not just eventually
+39/71 MemCheck #39: SpscRingBuffer wait_for_data() blocks until a genuine push() wakes it, not just eventually ............................................................................   Passed    0.52 sec
+      Start 40: SpscRingBuffer: sustained overwhelmed producer under real concurrency
+40/71 MemCheck #40: SpscRingBuffer: sustained overwhelmed producer under real concurrency .................................................................................................   Passed   15.07 sec
+      Start 41: SpscRingBuffer: artificially slowed consumer forces the eviction-collision spin-wait
+41/71 MemCheck #41: SpscRingBuffer: artificially slowed consumer forces the eviction-collision spin-wait ..................................................................................   Passed    0.53 sec
+      Start 42: SpscRingBuffer: blocking consumer under sustained overwhelmed producer
+42/71 MemCheck #42: SpscRingBuffer: blocking consumer under sustained overwhelmed producer ................................................................................................   Passed   25.42 sec
+      Start 43: SpscRingBuffer: slowed consumer relies on the producer-done notify_waiters() wake, not luck
+43/71 MemCheck #43: SpscRingBuffer: slowed consumer relies on the producer-done notify_waiters() wake, not luck ...........................................................................   Passed    0.53 sec
+      Start 44: set_thread_affinity_tag completes without crashing or hanging on a live thread
+44/71 MemCheck #44: set_thread_affinity_tag completes without crashing or hanging on a live thread ........................................................................................   Passed    0.49 sec
+      Start 45: Multiple threads can each be tagged, with distinct tags, without error
+45/71 MemCheck #45: Multiple threads can each be tagged, with distinct tags, without error ................................................................................................   Passed    0.54 sec
+      Start 46: format_delta_line renders a live level with its quantity
+46/71 MemCheck #46: format_delta_line renders a live level with its quantity ..............................................................................................................   Passed    0.47 sec
+      Start 47: format_delta_line renders a removed level distinctly from a zero quantity looking like data
+47/71 MemCheck #47: format_delta_line renders a removed level distinctly from a zero quantity looking like data ...........................................................................   Passed    0.47 sec
+      Start 48: NullDeltaSink discards without crashing
+48/71 MemCheck #48: NullDeltaSink discards without crashing ...............................................................................................................................   Passed    0.46 sec
+      Start 49: drain_publisher_queue pops everything currently queued, in order, and reports whether it did work
+49/71 MemCheck #49: drain_publisher_queue pops everything currently queued, in order, and reports whether it did work .....................................................................   Passed    0.47 sec
+      Start 50: FileDeltaSink writes one formatted line per delta to disk
+50/71 MemCheck #50: FileDeltaSink writes one formatted line per delta to disk .............................................................................................................   Passed    0.47 sec
+      Start 51: shard_for_symbol is deterministic and stays within bounds
+51/71 MemCheck #51: shard_for_symbol is deterministic and stays within bounds .............................................................................................................   Passed    0.48 sec
+      Start 52: ShardedPipeline rejects an unroutable order_id instead of guessing a shard
+52/71 MemCheck #52: ShardedPipeline rejects an unroutable order_id instead of guessing a shard ............................................................................................   Passed    0.49 sec
+      Start 53: Mixed-symbol stream: each symbol's book ends up correct and isolated from every other symbol
+53/71 MemCheck #53: Mixed-symbol stream: each symbol's book ends up correct and isolated from every other symbol ..........................................................................   Passed    0.59 sec
+      Start 54: ShardedPipeline's order routing table stays bounded over a long add/cancel/execute run
+54/71 MemCheck #54: ShardedPipeline's order routing table stays bounded over a long add/cancel/execute run ................................................................................   Passed    0.75 sec
+      Start 55: FeedGenerator with zero packet loss produces exactly message_count valid, decodable messages
+55/71 MemCheck #55: FeedGenerator with zero packet loss produces exactly message_count valid, decodable messages ..........................................................................   Passed    0.62 sec
+      Start 56: FeedGenerator is exhausted after message_count and stays exhausted
+56/71 MemCheck #56: FeedGenerator is exhausted after message_count and stays exhausted ....................................................................................................   Passed    0.50 sec
+      Start 57: FeedGenerator's packet loss rate roughly matches configuration over a large run
+57/71 MemCheck #57: FeedGenerator's packet loss rate roughly matches configuration over a large run .......................................................................................   Passed    1.32 sec
+      Start 58: FeedGenerator is deterministic for a fixed seed
+58/71 MemCheck #58: FeedGenerator is deterministic for a fixed seed .......................................................................................................................   Passed    0.52 sec
+      Start 59: FeedGenerator assigns per-shard sequence numbers that are exactly contiguous absent loss
+59/71 MemCheck #59: FeedGenerator assigns per-shard sequence numbers that are exactly contiguous absent loss ..............................................................................   Passed    0.57 sec
+      Start 60: Reactor drives a coroutine through every suspend/resume cycle to completion
+60/71 MemCheck #60: Reactor drives a coroutine through every suspend/resume cycle to completion ...........................................................................................   Passed    0.48 sec
+      Start 61: Reactor correctly interleaves and completes multiple independent coroutines
+61/71 MemCheck #61: Reactor correctly interleaves and completes multiple independent coroutines ...........................................................................................   Passed    0.49 sec
+      Start 62: Requesting stop mid-flight lets a suspended coroutine finish cleanly instead of leaking
+62/71 MemCheck #62: Requesting stop mid-flight lets a suspended coroutine finish cleanly instead of leaking ...............................................................................   Passed    0.48 sec
+      Start 63: Stop requested before a coroutine even starts still lets it complete without leaking
+63/71 MemCheck #63: Stop requested before a coroutine even starts still lets it complete without leaking ..................................................................................   Passed    0.48 sec
+      Start 64: Full pipeline end-to-end: real concurrent threads, live packet loss, gap detection observed while other shards are actively processing
+64/71 MemCheck #64: Full pipeline end-to-end: real concurrent threads, live packet loss, gap detection observed while other shards are actively processing ................................   Passed   25.93 sec
+      Start 65: Stopping the pipeline mid-flight joins promptly without hanging
+65/71 MemCheck #65: Stopping the pipeline mid-flight joins promptly without hanging .......................................................................................................   Passed    0.77 sec
+      Start 66: A PipelineRunner destroyed without an explicit stop() still shuts down cleanly
+66/71 MemCheck #66: A PipelineRunner destroyed without an explicit stop() still shuts down cleanly ........................................................................................   Passed    0.73 sec
+      Start 67: Repeated PipelineRunner construct/run/destroy cycles in one process don't leak pool capacity
+67/71 MemCheck #67: Repeated PipelineRunner construct/run/destroy cycles in one process don't leak pool capacity ..........................................................................   Passed   97.86 sec
+      Start 68: Publisher output: replaying a shard's recorded book deltas in order reconstructs the exact same price-level state as the live book -- Phase 9's Done-when criterion
+68/71 MemCheck #68: Publisher output: replaying a shard's recorded book deltas in order reconstructs the exact same price-level state as the live book -- Phase 9's Done-when criterion ...   Passed    2.15 sec
+      Start 69: FileDeltaSink downstream stub: a full pipeline run produces a non-empty, human-readable delta log per shard
+69/71 MemCheck #69: FileDeltaSink downstream stub: a full pipeline run produces a non-empty, human-readable delta log per shard ...........................................................   Passed    1.23 sec
+      Start 70: Publisher shutdown handshake loses no deltas when stop() lands mid-flight, with the publisher thread deliberately lagging behind its decoder
+70/71 MemCheck #70: Publisher shutdown handshake loses no deltas when stop() lands mid-flight, with the publisher thread deliberately lagging behind its decoder ..........................***Failed    0.62 sec
+Filters: "Publisher shutdown handshake loses no deltas when stop() lands mid-flight\, with the publisher thread deliberately lagging behind its decoder"
+Randomness seeded to: 1581122712
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+mdfh_pipeline_e2e_test is a Catch2 v3.7.1 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+Publisher shutdown handshake loses no deltas when stop() lands mid-flight, with
+the publisher thread deliberately lagging behind its decoder
+-------------------------------------------------------------------------------
+/workspace/io/test_pipeline_e2e.cpp:382
+...............................................................................
+
+/workspace/io/test_pipeline_e2e.cpp:471: FAILED:
+  REQUIRE( any_deltas )
+with expansion:
+  false
+
+===============================================================================
+test cases: 1 | 1 failed
+assertions: 8 | 7 passed | 1 failed
+
+
+      Start 71: Phase 0 scaffolding builds and runs
+71/71 MemCheck #71: Phase 0 scaffolding builds and runs ...................................................................................................................................   Passed    0.45 sec
+
+97% tests passed, 2 tests failed out of 71
+
+Total Test time (real) = 209.93 sec
+
+The following tests FAILED:
+	 20 - NaiveOrderBook (std::allocator) causes real heap allocations for the same traffic (Failed)
+	 70 - Publisher shutdown handshake loses no deltas when stop() lands mid-flight, with the publisher thread deliberately lagging behind its decoder (Failed)
+-- Processing memory checking output:
+MemCheck log files can be found here: (<#> corresponds to test number)
+/workspace/build/valgrind/Testing/Temporary/MemoryChecker.<#>.log
+Memory checking results:
+Errors while running CTest
