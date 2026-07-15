@@ -5,16 +5,22 @@
 
 #include <atomic>
 #include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <map>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 
 #include "io/pipeline_runner.hpp"
 #include "protocol/message_types.hpp"
+#include "publisher/publisher.hpp"
 
 using namespace mdfh::io;
-namespace protocol = mdfh::protocol;
+namespace protocol  = mdfh::protocol;
+namespace publisher = mdfh::publisher;
 
 namespace {
 
@@ -217,4 +223,250 @@ TEST_CASE("Repeated PipelineRunner construct/run/destroy cycles in one process d
     }
 
     SUCCEED("completed repeated construct/run/destroy cycles without pool exhaustion");
+}
+
+namespace {
+
+// Records every delta a shard's publisher thread sees, in the order it
+// sees them -- which is the order that shard's decoder thread applied the
+// corresponding input messages, since Shard::output_queue is SPSC with
+// that decoder as its sole producer (see io/shard_demux.cpp).
+struct RecordingSink : publisher::DeltaSink {
+    std::vector<publisher::BookDelta> deltas;
+    void publish(const publisher::BookDelta& delta) override { deltas.push_back(delta); }
+};
+
+}  // namespace
+
+TEST_CASE(
+    "Publisher output: replaying a shard's recorded book deltas in order reconstructs the exact same "
+    "price-level state as the live book -- Phase 9's Done-when criterion",
+    "[pipeline_e2e][publisher]") {
+    constexpr std::size_t kNumShards = 2;
+
+    // Loss disabled: this test is checking that deltas are a complete,
+    // correct record of what apply() did, not re-litigating gap-driven
+    // divergence (already Phase 6/7's concern, covered by other tests).
+    FeedGenerator::Config feed_config{
+        .symbols          = eight_symbols(),
+        .num_shards       = kNumShards,
+        .message_count    = 20'000,
+        .packet_loss_rate = 0.0,
+        .seed             = 4242,
+    };
+
+    PipelineRunner runner(feed_config, kNumShards);
+
+    std::vector<RecordingSink*> sinks;
+    for (std::size_t i = 0; i < kNumShards; ++i) {
+        auto sink = std::make_unique<RecordingSink>();
+        sinks.push_back(sink.get());
+        runner.set_delta_sink(i, std::move(sink));
+    }
+
+    runner.start();
+    runner.join();
+
+    bool any_deltas = false;
+    for (std::size_t i = 0; i < kNumShards; ++i) {
+        // Reconstruct (symbol, side, price) -> current quantity purely
+        // from the delta stream, applied in arrival order: a delta with
+        // total_quantity == 0 removes that level, otherwise it's the
+        // level's latest known quantity -- exactly LevelDelta's
+        // 0-means-removed convention (orderbook/order_book.hpp).
+        std::map<std::tuple<protocol::Symbol, protocol::Side, protocol::Price>, protocol::Quantity> reconstructed;
+        for (const auto& delta : sinks[i]->deltas) {
+            any_deltas = true;
+            auto key = std::make_tuple(delta.symbol, delta.side, delta.price);
+            if (delta.total_quantity == 0) {
+                reconstructed.erase(key);
+            } else {
+                reconstructed[key] = delta.total_quantity;
+            }
+        }
+
+        // Compare against the live book's actual final state, level by
+        // level, both directions: every live level must match the
+        // reconstruction (no missing/incorrect deltas), and the
+        // reconstruction must have no extra levels the live book doesn't
+        // (no stale/over-reported deltas).
+        std::size_t live_level_count = 0;
+        for (const auto& [symbol, book] : runner.pipeline().shard(i).books) {
+            const auto snapshot = book.depth_snapshot(1'000'000);
+            live_level_count += snapshot.bids.size() + snapshot.asks.size();
+            for (const auto& level : snapshot.bids) {
+                const auto key = std::make_tuple(symbol, protocol::Side::Buy, level.price);
+                REQUIRE(reconstructed.contains(key));
+                REQUIRE(reconstructed.at(key) == level.total_quantity);
+            }
+            for (const auto& level : snapshot.asks) {
+                const auto key = std::make_tuple(symbol, protocol::Side::Sell, level.price);
+                REQUIRE(reconstructed.contains(key));
+                REQUIRE(reconstructed.at(key) == level.total_quantity);
+            }
+        }
+        REQUIRE(reconstructed.size() == live_level_count);
+    }
+
+    REQUIRE(any_deltas);  // sanity: this actually exercised the publisher path, not a degenerate empty run
+}
+
+TEST_CASE(
+    "FileDeltaSink downstream stub: a full pipeline run produces a non-empty, human-readable delta log per shard",
+    "[pipeline_e2e][publisher]") {
+    constexpr std::size_t kNumShards = 2;
+
+    FeedGenerator::Config feed_config{
+        .symbols          = eight_symbols(),
+        .num_shards       = kNumShards,
+        .message_count    = 5'000,
+        .packet_loss_rate = 0.0,
+        .seed             = 909,
+    };
+
+    PipelineRunner runner(feed_config, kNumShards);
+
+    std::vector<std::filesystem::path> paths;
+    for (std::size_t i = 0; i < kNumShards; ++i) {
+        auto path = std::filesystem::temp_directory_path() / ("mdfh_test_pipeline_e2e_shard_" +
+                                                                std::to_string(i) + ".deltas.log");
+        std::filesystem::remove(path);
+        paths.push_back(path);
+        runner.set_delta_sink(i, std::make_unique<publisher::FileDeltaSink>(path));
+    }
+
+    runner.start();
+    runner.join();
+
+    bool any_output = false;
+    for (const auto& path : paths) {
+        std::ifstream in(path);
+        REQUIRE(in.is_open());
+        std::string line;
+        std::size_t line_count = 0;
+        while (std::getline(in, line)) {
+            ++line_count;
+            REQUIRE(line.find("seq=") != std::string::npos);
+            REQUIRE(line.find("symbol=") != std::string::npos);
+        }
+        any_output = any_output || (line_count > 0);
+        std::filesystem::remove(path);
+    }
+    REQUIRE(any_output);  // observed, live book delta output at the far end of the full pipeline
+}
+
+namespace {
+
+// Wraps a RecordingSink with a small artificial per-publish delay. The
+// natural-completion reconstruction test above proves zero delta loss, but
+// only under whatever thread timing the OS happens to give a normal run --
+// it doesn't specifically stress the shutdown handshake's actual race
+// window (a decoder's LAST push to Shard::output_queue, concurrent with
+// that decoder observing producer_done() and about to set
+// shard_decoder_done_[i], concurrent with its publisher thread possibly
+// already mid-drain). This delay deliberately biases the publisher thread
+// to lag behind its decoder, making it far more likely that stop() below
+// lands while the publisher genuinely still has undrained work queued --
+// exercising the handshake's "one more drain after observing done" path
+// on purpose, rather than hoping incidental scheduling happens to hit it.
+struct SlowRecordingSink : publisher::DeltaSink {
+    std::vector<publisher::BookDelta> deltas;
+    void publish(const publisher::BookDelta& delta) override {
+        std::this_thread::sleep_for(std::chrono::microseconds(50));
+        deltas.push_back(delta);
+    }
+};
+
+}  // namespace
+
+TEST_CASE(
+    "Publisher shutdown handshake loses no deltas when stop() lands mid-flight, with the publisher "
+    "thread deliberately lagging behind its decoder",
+    "[pipeline_e2e][publisher]") {
+    constexpr std::size_t kNumShards = 2;
+
+    FeedGenerator::Config feed_config{
+        .symbols          = eight_symbols(),
+        .num_shards       = kNumShards,
+        .message_count    = 1'000'000,  // deliberately huge -- stop() cuts this off long before exhaustion
+        .packet_loss_rate = 0.0,        // isolate the shutdown-handshake question from gap-driven divergence
+        .seed             = 2024,
+    };
+
+    PipelineRunner runner(feed_config, kNumShards);
+
+    std::vector<SlowRecordingSink*> sinks;
+    for (std::size_t i = 0; i < kNumShards; ++i) {
+        auto sink = std::make_unique<SlowRecordingSink>();
+        sinks.push_back(sink.get());
+        runner.set_delta_sink(i, std::move(sink));
+    }
+
+    runner.start();
+
+    // Deliberately short (2ms, not the liveness test's 20ms): with
+    // SlowRecordingSink's 50us/delta cap, the publisher can process at
+    // most ~40 deltas in this window, while the decoder can easily
+    // generate far more -- guaranteeing genuine backlog exists when stop()
+    // fires (the actual point of this test) -- but staying comfortably
+    // under kDeltaQueueCapacity (4096, see publisher/book_delta.hpp)
+    // regardless of exact decoder throughput, so the queue's OWN
+    // drop-oldest backpressure (a real, separate, already-tested behavior)
+    // can't fire and get confused with the shutdown-handshake question
+    // this test isolates. Verified explicitly below via
+    // dropped_updates_total(), not just assumed from the arithmetic.
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    REQUIRE_FALSE(runner.producer_done());  // sanity: genuinely still mid-flight
+
+    runner.stop();  // triggers shutdown while decoders and the (artificially slow) publishers are both mid-work
+
+    REQUIRE(runner.producer_done());
+    REQUIRE(runner.feed().total_generated() < 1'000'000);  // confirms this really was cut short, not a full run
+
+    // The actual claim: whatever the live book ended up with, every one of
+    // those price levels is fully and correctly reflected in the deltas
+    // this shard's (deliberately lagging) publisher thread received --
+    // proving the final drain-after-done-flag path didn't drop anything
+    // that was genuinely in flight when stop() landed. Identical technique
+    // to the natural-completion reconstruction test above.
+    bool any_deltas = false;
+    for (std::size_t i = 0; i < kNumShards; ++i) {
+        // Precondition, checked rather than assumed: no LEGITIMATE
+        // drop-oldest loss happened on this shard's output queue. If this
+        // ever fails, the test's premise (the only possible loss is a
+        // shutdown-handshake bug, not ordinary backpressure) is violated,
+        // and the timing constants above need retuning -- not a silent
+        // false pass or a confusing failure below.
+        REQUIRE(runner.pipeline().shard(i).output_queue.dropped_updates_total() == 0);
+
+        std::map<std::tuple<protocol::Symbol, protocol::Side, protocol::Price>, protocol::Quantity> reconstructed;
+        for (const auto& delta : sinks[i]->deltas) {
+            any_deltas = true;
+            auto key = std::make_tuple(delta.symbol, delta.side, delta.price);
+            if (delta.total_quantity == 0) {
+                reconstructed.erase(key);
+            } else {
+                reconstructed[key] = delta.total_quantity;
+            }
+        }
+
+        std::size_t live_level_count = 0;
+        for (const auto& [symbol, book] : runner.pipeline().shard(i).books) {
+            const auto snapshot = book.depth_snapshot(1'000'000);
+            live_level_count += snapshot.bids.size() + snapshot.asks.size();
+            for (const auto& level : snapshot.bids) {
+                const auto key = std::make_tuple(symbol, protocol::Side::Buy, level.price);
+                REQUIRE(reconstructed.contains(key));
+                REQUIRE(reconstructed.at(key) == level.total_quantity);
+            }
+            for (const auto& level : snapshot.asks) {
+                const auto key = std::make_tuple(symbol, protocol::Side::Sell, level.price);
+                REQUIRE(reconstructed.contains(key));
+                REQUIRE(reconstructed.at(key) == level.total_quantity);
+            }
+        }
+        REQUIRE(reconstructed.size() == live_level_count);
+    }
+
+    REQUIRE(any_deltas);  // sanity: the slow publisher actually processed something before/during shutdown
 }

@@ -31,24 +31,34 @@ namespace {
 // locality over every other shard's for no principled reason. It gets its
 // own dedicated tag instead, distinct from every shard tag.
 //
-// Once Phase 9 adds a per-shard publisher thread, that thread SHOULD share
-// its shard's decoder tag: within one shard, the decoder thread is the
-// sole producer for that shard's book-delta output queue and the
-// publisher thread is its sole consumer -- a genuine producer/consumer
-// data-sharing relationship, unlike the cross-shard case above, so L2
-// locality between exactly those two threads is a real potential win.
+// Phase 9's publisher thread shares its shard's decoder tag, per the plan
+// left here in Phase 8: within one shard, the decoder thread is the sole
+// producer for that shard's book-delta output queue (Shard::output_queue)
+// and the publisher thread is its sole consumer -- a genuine
+// producer/consumer data-sharing relationship, unlike the cross-shard case
+// above, so L2 locality between exactly those two threads is a real
+// potential win.
 constexpr affinity::AffinityTag kNetworkIoAffinityTag = 1;
-constexpr affinity::AffinityTag kShardAffinityTagBase = 2;  // shard i -> kShardAffinityTagBase + i
+constexpr affinity::AffinityTag kShardAffinityTagBase = 2;  // shard i's decoder AND publisher -> this tag + i
 
 }  // namespace
 
 PipelineRunner::PipelineRunner(FeedGenerator::Config feed_config, std::size_t num_shards)
-    : feed_(std::move(feed_config)), pipeline_(num_shards) {}
+    : feed_(std::move(feed_config)), pipeline_(num_shards) {
+    delta_sinks_.reserve(pipeline_.num_shards());
+    for (std::size_t i = 0; i < pipeline_.num_shards(); ++i) {
+        delta_sinks_.push_back(std::make_unique<publisher::NullDeltaSink>());
+    }
+}
 
 PipelineRunner::~PipelineRunner() {
     if (started_ && !joined_) {
         stop();
     }
+}
+
+void PipelineRunner::set_delta_sink(std::size_t shard_index, std::unique_ptr<publisher::DeltaSink> sink) {
+    delta_sinks_.at(shard_index) = std::move(sink);
 }
 
 void PipelineRunner::start(bool enable_affinity) {
@@ -77,6 +87,7 @@ void PipelineRunner::start(bool enable_affinity) {
     }
 
     shard_threads_.reserve(pipeline_.num_shards());
+    publisher_threads_.reserve(pipeline_.num_shards());
     for (std::size_t i = 0; i < pipeline_.num_shards(); ++i) {
         shard_threads_.emplace_back([this, i] {
             // Must happen before this thread constructs any OrderBook (the
@@ -102,10 +113,43 @@ void PipelineRunner::start(bool enable_affinity) {
                     std::this_thread::sleep_for(std::chrono::microseconds(50));
                 }
             }
+            // Last act, mirroring producer_done_ one stage upstream: tells
+            // this shard's publisher thread it's seen everything this
+            // decoder will ever push to Shard::output_queue, so its own
+            // final drain-and-exit check is safe to trust.
+            shard_decoder_done_[i].store(true, std::memory_order_release);
         });
         if (enable_affinity) {
             ++affinity_hints_attempted_;
             if (affinity::set_thread_affinity_tag(shard_threads_.back(),
+                                                   kShardAffinityTagBase + static_cast<affinity::AffinityTag>(i))) {
+                ++affinity_hints_applied_;
+            }
+        }
+
+        publisher_threads_.emplace_back([this, i] {
+            publisher::DeltaSink& sink = *delta_sinks_[i];
+            for (;;) {
+                if (publisher::drain_publisher_queue(pipeline_.shard(i).output_queue, sink)) {
+                    continue;  // more may already be queued; keep draining before checking anything else
+                }
+                if (shard_decoder_done_[i].load(std::memory_order_acquire)) {
+                    // Same "one more check, in case something was pushed
+                    // between our last empty check and observing the done
+                    // flag" pattern as the decoder loop above.
+                    if (!publisher::drain_publisher_queue(pipeline_.shard(i).output_queue, sink)) {
+                        break;
+                    }
+                } else {
+                    std::this_thread::sleep_for(std::chrono::microseconds(50));
+                }
+            }
+        });
+        if (enable_affinity) {
+            // Shares its decoder's tag, not a new one -- see the
+            // tag-grouping comment above.
+            ++affinity_hints_attempted_;
+            if (affinity::set_thread_affinity_tag(publisher_threads_.back(),
                                                    kShardAffinityTagBase + static_cast<affinity::AffinityTag>(i))) {
                 ++affinity_hints_applied_;
             }
@@ -122,14 +166,24 @@ void PipelineRunner::join() {
     if (joined_) {
         return;
     }
-    // Join the network I/O thread first: it sets producer_done_ as its
-    // very last act, so by the time it's joined, every shard thread's
-    // "producer is done, do a final drain and exit" check is guaranteed
-    // to see it on their next iteration -- no separate signaling needed.
+    // Join order matches the data flow (network I/O -> decoder ->
+    // publisher), each stage's "I'm done" flag set as its last act before
+    // it exits: network_io_thread_ sets producer_done_, so every decoder's
+    // "producer is done, final drain and exit" check is guaranteed to see
+    // it by the time we even start waiting on shard_threads_; each decoder
+    // sets shard_decoder_done_[i], so every publisher's equivalent check is
+    // likewise guaranteed to see it by the time we start waiting on
+    // publisher_threads_. No separate cross-thread signaling needed beyond
+    // these flags.
     if (network_io_thread_.joinable()) {
         network_io_thread_.join();
     }
     for (auto& t : shard_threads_) {
+        if (t.joinable()) {
+            t.join();
+        }
+    }
+    for (auto& t : publisher_threads_) {
         if (t.joinable()) {
             t.join();
         }

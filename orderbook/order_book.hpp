@@ -1,6 +1,8 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
+#include <cstdint>
 #include <expected>
 #include <list>
 #include <map>
@@ -41,6 +43,36 @@ struct PriceLevelView {
 struct BestBidAsk {
     std::optional<PriceLevelView> bid;  // highest resting buy price
     std::optional<PriceLevelView> ask;  // lowest resting sell price
+};
+
+// One price level's state immediately after an apply() call touched it.
+// total_quantity == 0 means the level is now empty (the last resting order
+// at that price was just removed) -- Phase 9's publisher (see
+// io/shard_demux.cpp's process_shard()) uses that to distinguish "level
+// updated" from "level removed" when building a downstream BookDelta,
+// without needing a separate enum.
+struct LevelDelta {
+    protocol::Side side;
+    protocol::Price price;
+    protocol::Quantity total_quantity;
+};
+
+// Every price level a single apply() call touched. At most 2: Replace
+// vacates an old level and populates a new one (1 record each, 2 if the
+// price actually changed -- still 2 even when the price is unchanged,
+// since the old-quantity-without and new-quantity-with records are both
+// meaningful to a downstream consumer applying them in order); every other
+// message touches exactly 1. Fixed-size and stack-allocated so building
+// this doesn't compromise apply()'s zero-dynamic-allocation hot path
+// (CLAUDE.md) -- the same rule that shaped object_pool.hpp applies to this
+// return value too, not just the containers apply() mutates.
+struct ApplyResult {
+    std::array<LevelDelta, 2> deltas{};
+    std::uint8_t count = 0;
+
+    void add(protocol::Side side, protocol::Price price, protocol::Quantity total_quantity) noexcept {
+        deltas[count++] = LevelDelta{side, price, total_quantity};
+    }
 };
 
 struct DepthSnapshot {
@@ -115,10 +147,14 @@ class OrderBookT {
 public:
     OrderBookT() { order_index_.reserve(kExpectedRestingOrdersPerSymbol); }
 
-    std::expected<void, ApplyError> apply(const protocol::AddOrder& msg);
-    std::expected<void, ApplyError> apply(const protocol::CancelOrder& msg);
-    std::expected<void, ApplyError> apply(const protocol::ExecuteOrder& msg);
-    std::expected<void, ApplyError> apply(const protocol::ReplaceOrder& msg);
+    // Returns which price level(s) this call touched (see ApplyResult) so
+    // callers -- Phase 9's publisher path in particular -- can emit
+    // downstream book deltas without a second, redundant lookup back into
+    // the book for the level(s) that just changed.
+    std::expected<ApplyResult, ApplyError> apply(const protocol::AddOrder& msg);
+    std::expected<ApplyResult, ApplyError> apply(const protocol::CancelOrder& msg);
+    std::expected<ApplyResult, ApplyError> apply(const protocol::ExecuteOrder& msg);
+    std::expected<ApplyResult, ApplyError> apply(const protocol::ReplaceOrder& msg);
 
     BestBidAsk best_bid_ask() const;
     DepthSnapshot depth_snapshot(std::size_t levels) const;
@@ -161,8 +197,13 @@ private:
     OrderIndex order_index_;
 
     Level* level_for(protocol::Side side, protocol::Price price);
-    void insert_resting_order(RestingOrder order);
-    void remove_resting_order(protocol::OrderId order_id);
+    // Returns the resulting level's total_quantity after insertion (always
+    // > 0), so callers building an ApplyResult don't need a second lookup.
+    protocol::Quantity insert_resting_order(RestingOrder order);
+    // Returns the touched level's side/price and its total_quantity AFTER
+    // removal -- 0 if that was the last order at that price (the level is
+    // now gone), otherwise the remaining aggregate quantity.
+    LevelDelta remove_resting_order(protocol::OrderId order_id);
 };
 
 // Production default: every container above draws its node memory from the

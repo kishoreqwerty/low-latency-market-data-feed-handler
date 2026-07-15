@@ -42,6 +42,7 @@
 #include "orderbook/order_book.hpp"
 #include "protocol/decoder.hpp"
 #include "protocol/message_types.hpp"
+#include "publisher/book_delta.hpp"
 
 namespace mdfh::io {
 
@@ -71,6 +72,13 @@ struct Shard {
     concurrency::SpscRingBuffer<QueuedMessage, kShardQueueCapacity> queue;
     concurrency::GapDetector gap_detector;
     std::unordered_map<protocol::Symbol, orderbook::OrderBook, protocol::SymbolHash> books;
+
+    // Phase 9: a second, independent SPSC ring buffer per shard -- this
+    // shard's own decoder thread (process_shard(), below) is its sole
+    // producer, that shard's own publisher thread (io/pipeline_runner.cpp)
+    // its sole consumer. Same drop-oldest policy, same one-thread-per-side
+    // reasoning as `queue` above, just one stage further downstream.
+    publisher::DeltaQueue output_queue;
 };
 
 // Hashes a symbol to a shard index in [0, num_shards).

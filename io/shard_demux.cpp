@@ -1,5 +1,6 @@
 #include "io/shard_demux.hpp"
 
+#include <cstdint>
 #include <stdexcept>
 #include <type_traits>
 #include <variant>
@@ -130,7 +131,7 @@ bool ShardedPipeline::process_shard(std::size_t shard_index) {
         orderbook::OrderBook& book = s.books[qm.symbol];
         std::visit(
             [&](auto&& m) {
-                (void)book.apply(m);
+                auto result = book.apply(m);
 
                 // Cancel and Replace's old_order_id are already removed
                 // from order_route_ at demux() time, since those wire
@@ -143,6 +144,27 @@ bool ShardedPipeline::process_shard(std::size_t shard_index) {
                     if (!book.has_order(m.order_id)) {
                         std::lock_guard<std::mutex> lock(order_route_mutex_);
                         order_route_.erase(m.order_id);
+                    }
+                }
+
+                // Phase 9: turn every price level apply() touched into a
+                // downstream BookDelta -- a rejected message (result has
+                // no value: duplicate/unknown order_id, over-execution)
+                // touched nothing, so there's nothing to publish. push()
+                // is drop-oldest, same as the input queue -- a stalled
+                // publisher thread can only fall behind, never block this
+                // decoder thread.
+                if (result.has_value()) {
+                    for (std::uint8_t i = 0; i < result->count; ++i) {
+                        const orderbook::LevelDelta& level = result->deltas[i];
+                        s.output_queue.push(publisher::BookDelta{
+                            .symbol         = qm.symbol,
+                            .side           = level.side,
+                            .price          = level.price,
+                            .total_quantity = level.total_quantity,
+                            .seq_num        = m.seq_num,
+                            .timestamp      = m.timestamp,
+                        });
                     }
                 }
             },
