@@ -1,158 +1,151 @@
 <title>Phase 10 — Latency &amp; Profiling</title>
 <style>
+  /* Always light — deliberately ignores prefers-color-scheme so this renders
+     white regardless of the browser/OS dark-mode setting. */
   :root {
-    --bg: #10141b;
-    --bg-panel: #171d27;
-    --bg-panel-raised: #1c2330;
-    --bg-inset: #f4ecd8;
-    --text: #e7ebf0;
-    --text-muted: #8b96a5;
-    --accent: #4fd1c0;
-    --accent-warm: #e2954a;
-    --border: #262e3a;
-    --good: #52c07a;
-    --code-bg: #0c0f14;
-  }
-  :root[data-theme="light"] {
-    --bg: #f5f7f9;
-    --bg-panel: #ffffff;
-    --bg-panel-raised: #eef1f4;
-    --bg-inset: #fbf6ea;
-    --text: #161b22;
-    --text-muted: #5b6674;
-    --accent: #0f8f7f;
-    --accent-warm: #b5651d;
-    --border: #dde3ea;
-    --good: #22874a;
-    --code-bg: #eef1f4;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #10141b; --bg-panel: #171d27; --bg-panel-raised: #1c2330; --bg-inset: #f4ecd8;
-      --text: #e7ebf0; --text-muted: #8b96a5; --accent: #4fd1c0; --accent-warm: #e2954a;
-      --border: #262e3a; --good: #52c07a; --code-bg: #0c0f14;
-    }
-  }
-  @media (prefers-color-scheme: light) {
-    :root:not([data-theme="dark"]) {
-      --bg: #f5f7f9; --bg-panel: #ffffff; --bg-panel-raised: #eef1f4; --bg-inset: #fbf6ea;
-      --text: #161b22; --text-muted: #5b6674; --accent: #0f8f7f; --accent-warm: #b5651d;
-      --border: #dde3ea; --good: #22874a; --code-bg: #eef1f4;
-    }
+    --bg: #ffffff; --bg-panel: #ffffff; --bg-panel-raised: #f2f3f2; --bg-inset: #f2f3f2;
+    --text: #1a1d1c; --text-muted: #74796f; --accent: #14514c; --secondary: #4f6b75;
+    --border: #e6e8e5; --bad: #b5432c; --code-bg: #f2f3f1;
+    --shadow: 0 16px 40px -18px rgba(31, 36, 33, 0.18);
   }
 
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    line-height: 1.55;
-    -webkit-font-smoothing: antialiased;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.6; -webkit-font-smoothing: antialiased;
   }
-  ::selection { background: var(--accent); color: #08110f; }
+  ::selection { background: var(--accent); color: var(--bg); }
   a { color: var(--accent); }
-  a:focus-visible, button:focus-visible, [tabindex]:focus-visible {
-    outline: 2px solid var(--accent); outline-offset: 2px;
-  }
+  a:focus-visible, button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  .wrap { max-width: 980px; margin: 0 auto; padding: 56px 24px 96px; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 48px 24px 96px; }
 
-  header.page { margin-bottom: 40px; }
-  .eyebrow {
-    font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
-    color: var(--accent); margin: 0 0 10px;
+  header.page { margin-bottom: 28px; }
+  .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--secondary); margin: 0 0 12px; }
+  h1 { font-size: clamp(26px, 3.6vw, 36px); font-weight: 800; margin: 0 0 14px; letter-spacing: -0.015em; text-wrap: balance; }
+  .dek { font-size: 15.5px; color: var(--text-muted); max-width: 70ch; margin: 0; }
+
+  /* --- Tab bar --- */
+  .tabbar {
+    display: flex; gap: 30px; border-bottom: 1px solid var(--border); margin: 32px 0 40px;
+    overflow-x: auto; scrollbar-width: none;
   }
-  h1 {
-    font-size: clamp(28px, 4vw, 38px); font-weight: 700; margin: 0 0 12px; letter-spacing: -0.01em;
-    text-wrap: balance;
+  .tabbar::-webkit-scrollbar { display: none; }
+  .tabbar a {
+    flex: 0 0 auto; padding-bottom: 13px; font-size: 12px; font-weight: 700; letter-spacing: 0.05em;
+    text-transform: uppercase; color: var(--text-muted); text-decoration: none;
+    border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; transition: color 0.15s;
   }
-  .dek { font-size: 16px; color: var(--text-muted); max-width: 66ch; margin: 0; }
+  .tabbar a.active, .tabbar a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* --- Layout: content + sticky sidebar --- */
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 44px; align-items: start; }
+  .layout .content { min-width: 0; }
+  .sidebar { position: sticky; top: 24px; }
 
   h2 {
-    font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
-    color: var(--text-muted); margin: 0 0 16px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
+    font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--text-muted); margin: 0 0 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
   }
-  section { margin-bottom: 48px; }
+  h2 .chip {
+    display: inline-block; font-size: 10.5px; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase;
+    color: var(--bg); background: var(--accent); padding: 3px 9px; border-radius: 5px;
+  }
+  h2.headline {
+    font-size: clamp(22px, 2.6vw, 28px); font-weight: 800; text-transform: uppercase; letter-spacing: -0.005em;
+    color: var(--text); border-bottom: none; padding-bottom: 0; margin-bottom: 26px;
+  }
+  section { margin-bottom: 52px; }
 
-  code, .mono {
-    font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
-  }
+  code, .mono { font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace; }
   code {
     background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px;
     padding: 0.1em 0.4em; font-size: 0.88em;
   }
 
-  /* --- Key findings row --- */
-  .findings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-  .finding {
-    background: var(--bg-panel); border: 1px solid var(--border); border-radius: 10px;
-    padding: 20px 18px;
+  /* --- Reasons list (checkmark + dotted divider) --- */
+  .reasons { list-style: none; margin: 0; padding: 0; }
+  .reasons li { display: flex; gap: 18px; padding: 24px 0; border-bottom: 1px dotted var(--border); }
+  .reasons li:last-child { border-bottom: none; padding-bottom: 4px; }
+  .reasons .check {
+    flex: 0 0 auto; width: 27px; height: 27px; border-radius: 50%; border: 1.5px solid var(--accent);
+    color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 13px;
+    margin-top: 2px;
   }
-  .finding .stat {
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    font-size: 30px; font-weight: 600; color: var(--accent-warm); line-height: 1;
+  .reasons .body { font-size: 15px; color: var(--text); }
+  .reasons .body strong { color: var(--accent); font-weight: 700; }
+
+  /* --- Sidebar stat card --- */
+  .stat-card {
+    background: var(--bg-panel); border: 1px solid var(--border); border-radius: 16px;
+    box-shadow: var(--shadow); padding: 18px;
+  }
+  .stat-card .status-pill {
+    display: block; text-align: center; background: var(--accent); color: var(--bg);
+    font-weight: 700; font-size: 12px; letter-spacing: 0.03em; text-transform: uppercase;
+    padding: 13px; border-radius: 999px; margin-bottom: 22px;
+  }
+  .stat-card .stat-single { padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px dashed var(--border); }
+  .stat-card .stat-label {
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--secondary);
+    margin-bottom: 6px;
+  }
+  .stat-card .stat-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .stat-card .stat-grid-2 .stat-label { color: var(--text-muted); }
+  .stat-card .stat-value {
+    font-size: 21px; font-weight: 800; color: var(--accent);
     font-variant-numeric: tabular-nums;
   }
-  .finding.good .stat { color: var(--good); }
-  .finding .stat-label { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
-  .finding p { font-size: 13.5px; margin: 12px 0 0; color: var(--text); }
+  .stat-card .stat-grid-2 .stat-value { font-size: 18px; }
 
   /* --- Flamegraph panel --- */
-  .flame-panel {
-    background: var(--bg-inset); border-radius: 12px; border: 1px solid var(--border);
-    padding: 4px; overflow-x: auto;
-  }
+  .flame-panel { background: var(--bg-inset); border-radius: 8px; border: 1px solid var(--border); padding: 4px; overflow-x: auto; }
   .flame-panel svg { display: block; max-width: none; }
   .flame-caption { font-size: 13px; color: var(--text-muted); margin-top: 10px; }
 
   /* --- Latency table --- */
-  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
   table { border-collapse: collapse; width: 100%; min-width: 720px; background: var(--bg-panel); }
   th, td {
     text-align: right; padding: 10px 14px; font-size: 13.5px; border-bottom: 1px solid var(--border);
     font-variant-numeric: tabular-nums;
   }
   th:first-child, td:first-child { text-align: left; font-family: ui-monospace, monospace; }
-  thead th { color: var(--text-muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; }
+  thead th { color: var(--text-muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
   tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--bg-panel-raised); }
   tr.divider td { border-bottom: 1px solid var(--border); border-top: 2px solid var(--border); }
-  tr.primary td { color: var(--accent); font-weight: 600; }
+  tr.primary td { color: var(--accent); font-weight: 700; }
   .table-note { font-size: 13px; color: var(--text-muted); margin-top: 10px; }
 
   /* --- Hot function list --- */
   .funclist { display: flex; flex-direction: column; gap: 10px; }
-  .func {
-    display: grid; grid-template-columns: 60px 1fr auto; align-items: center; gap: 14px;
-  }
-  .func .pct {
-    font-family: ui-monospace, monospace; font-size: 13px; font-variant-numeric: tabular-nums;
-    color: var(--accent-warm); text-align: right;
-  }
-  .func .bar-track {
-    height: 8px; background: var(--bg-panel-raised); border-radius: 4px; overflow: hidden;
-    border: 1px solid var(--border);
-  }
-  .func .bar-fill { height: 100%; background: var(--accent-warm); border-radius: 4px 0 0 4px; }
-  .func.instrumentation .bar-fill { background: var(--accent); }
+  .func { display: grid; grid-template-columns: 60px 1fr auto; align-items: center; gap: 14px; }
+  .func .pct { font-family: ui-monospace, monospace; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--accent); text-align: right; }
+  .func .bar-track { height: 7px; background: var(--bg-panel-raised); border-radius: 4px; overflow: hidden; border: 1px solid var(--border); }
+  .func .bar-fill { height: 100%; background: var(--accent); border-radius: 4px; }
+  .func.instrumentation .bar-fill { background: var(--secondary); }
   .func .name { font-family: ui-monospace, monospace; font-size: 12.5px; color: var(--text-muted); }
 
   /* --- Environment / method notes --- */
   .notes { display: grid; gap: 14px; }
   .note {
-    background: var(--bg-panel); border: 1px solid var(--border); border-left: 3px solid var(--accent-warm);
-    border-radius: 6px; padding: 14px 16px; font-size: 13.5px;
+    background: var(--bg-panel); border: 1px solid var(--border); border-left: 3px solid var(--secondary);
+    border-radius: 0 8px 8px 0; padding: 15px 17px; font-size: 13.5px;
   }
-  .note.ok { border-left-color: var(--good); }
+  .note.ok { border-left-color: var(--accent); }
   .note strong { color: var(--text); }
 
-  footer.page {
-    margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--border);
-    font-size: 12.5px; color: var(--text-muted);
-  }
+  footer.page { margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--text-muted); }
 
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { position: static; }
+  }
   @media (max-width: 680px) {
-    .findings { grid-template-columns: 1fr; }
     .func { grid-template-columns: 44px 1fr; }
     .func .name { grid-column: 1 / -1; }
   }
@@ -171,33 +164,44 @@
     </p>
   </header>
 
-  <section>
-    <h2>Three things this run actually proved</h2>
-    <div class="findings">
-      <div class="finding">
-        <div class="stat">33.5%</div>
-        <div class="stat-label">of all CPU samples, in nanosleep</div>
-        <p>The decoder/publisher polling loop's <code>sleep_for(50&micro;s)</code> is the single largest cost in the
-          whole profile &mdash; confirmed two independent ways (CPU sampling <em>and</em> the queue-wait latency
-          numbers below), not assumed from either alone.</p>
-      </div>
-      <div class="finding">
-        <div class="stat">~10%</div>
-        <div class="stat-label">of CPU time spent measuring latency</div>
-        <p>The <code>steady_clock::now()</code> calls this instrumentation itself added show up as a real,
-          non-trivial line item in the profile &mdash; an honest cost of measurement, not a free lunch.</p>
-      </div>
-      <div class="finding good">
-        <div class="stat">528ns</div>
-        <div class="stat-label">mean cost of <code>book.apply()</code> itself</div>
-        <p>Sub-microsecond at p50 on both platforms. The zero-allocation order book design (Phase 3) is not the
-          bottleneck &mdash; the surrounding polling architecture is.</p>
-      </div>
-    </div>
-  </section>
+  <nav class="tabbar" id="tabbar">
+    <a href="#findings" class="active">Overview</a>
+    <a href="#flamegraph">Flame Graph</a>
+    <a href="#latency-table">Latency Table</a>
+    <a href="#hot-functions">Hot Functions</a>
+    <a href="#method">Method</a>
+  </nav>
 
-  <section>
-    <h2>Flame graph &mdash; <code>mdfh_latency_bench</code>, Linux/Docker, <code>perf record -F 999 -g</code></h2>
+  <div class="layout">
+    <div class="content">
+
+      <section id="findings">
+        <h2 class="headline">Three things this run proved</h2>
+        <ul class="reasons">
+          <li>
+            <span class="check">&#10003;</span>
+            <span class="body"><strong>33.5% of all CPU samples</strong> landed in <code>nanosleep</code>. The
+              decoder/publisher polling loop's <code>sleep_for(50&micro;s)</code> is the single largest cost in
+              the whole profile &mdash; confirmed two independent ways (CPU sampling <em>and</em> the queue-wait
+              latency numbers below), not assumed from either alone.</span>
+          </li>
+          <li>
+            <span class="check">&#10003;</span>
+            <span class="body"><strong>~10% of CPU time</strong> went to measuring latency itself. The
+              <code>steady_clock::now()</code> calls this instrumentation added show up as a real, non-trivial
+              line item in the profile &mdash; an honest cost of measurement, not a free lunch.</span>
+          </li>
+          <li>
+            <span class="check">&#10003;</span>
+            <span class="body"><strong>528ns mean</strong> for <code>book.apply()</code> itself &mdash;
+              sub-microsecond at p50 on both platforms. The zero-allocation order book design (Phase 3) is not
+              the bottleneck; the surrounding polling architecture is.</span>
+          </li>
+        </ul>
+      </section>
+
+      <section id="flamegraph">
+        <h2><span class="chip">perf record -F 999 -g</span> mdfh_latency_bench, Linux/Docker</h2>
     <div class="flame-panel">
 <svg version="1.1" width="1200" height="518" onload="init(evt)" viewBox="0 0 1200 518" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
 <!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
@@ -1618,8 +1622,8 @@
       other.</p>
   </section>
 
-  <section>
-    <h2>Stage-boundary latency &mdash; percentiles (nanoseconds, n = 1,147,840)</h2>
+  <section id="latency-table">
+    <h2><span class="chip">n = 1,147,840</span> Stage-boundary latency percentiles, nanoseconds</h2>
     <div class="table-scroll">
       <table>
         <thead>
@@ -1650,8 +1654,8 @@
       actual in-container vs. ~70&micro;s natively), not the algorithm.</p>
   </section>
 
-  <section>
-    <h2>Hot functions &mdash; <code>perf report</code>, self time</h2>
+  <section id="hot-functions">
+    <h2><span class="chip">perf report</span> Hot functions, self time</h2>
     <div class="funclist">
       <div class="func">
         <span class="pct">33.46%</span>
@@ -1689,13 +1693,13 @@
         <span class="name">publisher::drain_publisher_queue</span>
       </div>
     </div>
-    <p class="table-note">Amber bars: the pipeline's own business logic. Teal bars: cost this measurement pass
+    <p class="table-note">Teal bars: the pipeline's own business logic. Slate bars: cost this measurement pass
       itself introduced. Bar width is each function's self-time percentage relative to the largest
       non-sleep entry (33.46%), so the two categories are visually comparable at a glance.</p>
   </section>
 
-  <section>
-    <h2>Environment &amp; method</h2>
+  <section id="method">
+    <h2><span class="chip">docker/</span> Environment &amp; method</h2>
     <div class="notes">
       <div class="note ok">
         <strong>perf really works here, with real symbol resolution</strong> &mdash; but only by bypassing
@@ -1723,9 +1727,60 @@
     </div>
   </section>
 
+    </div>
+
+    <aside class="sidebar">
+      <div class="stat-card">
+        <span class="status-pill">Phase 10 &middot; measured live</span>
+        <div class="stat-single">
+          <div class="stat-label">Dominant cost</div>
+          <div class="stat-value">33.5% nanosleep</div>
+        </div>
+        <div class="stat-grid-2">
+          <div>
+            <div class="stat-label">perf samples</div>
+            <div class="stat-value">13,018</div>
+          </div>
+          <div>
+            <div class="stat-label">sample rate</div>
+            <div class="stat-value">999&nbsp;Hz</div>
+          </div>
+          <div>
+            <div class="stat-label">book update, p50</div>
+            <div class="stat-value">792 ns</div>
+          </div>
+          <div>
+            <div class="stat-label">tick&rarr;book, p50</div>
+            <div class="stat-value">67,625 ns</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
   <footer class="page">
     Low-Latency Market Data Feed Handler &middot; Phase 10 &middot; generated from
     <code>docker/perf-out/</code> (flame graph, perf reports) and <code>bench/latency_bench.cpp</code>'s own
     stdout, both captured in this session.
   </footer>
 </div>
+
+<script>
+  (function () {
+    var links = document.querySelectorAll('#tabbar a');
+    var sections = Array.prototype.slice.call(links).map(function (a) {
+      return document.querySelector(a.getAttribute('href'));
+    });
+    if (!('IntersectionObserver' in window)) return;
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        var idx = sections.indexOf(entry.target);
+        if (idx === -1) return;
+        links.forEach(function (a) { a.classList.remove('active'); });
+        links[idx].classList.add('active');
+      });
+    }, { rootMargin: '-20% 0px -70% 0px' });
+    sections.forEach(function (s) { if (s) observer.observe(s); });
+  })();
+</script>

@@ -1,67 +1,64 @@
 <title>Feed Handler — Full Benchmark Report</title>
 <style>
+  /* Always light — deliberately ignores prefers-color-scheme so this renders
+     white regardless of the browser/OS dark-mode setting. */
   :root {
-    --bg: #10141b;
-    --bg-panel: #171d27;
-    --bg-panel-raised: #1c2330;
-    --bg-inset: #f4ecd8;
-    --text: #e7ebf0;
-    --text-muted: #8b96a5;
-    --accent: #4fd1c0;
-    --accent-warm: #e2954a;
-    --border: #262e3a;
-    --good: #52c07a;
-    --bad: #e2694a;
-    --code-bg: #0c0f14;
-  }
-  :root[data-theme="light"] {
-    --bg: #f5f7f9; --bg-panel: #ffffff; --bg-panel-raised: #eef1f4; --bg-inset: #fbf6ea;
-    --text: #161b22; --text-muted: #5b6674; --accent: #0f8f7f; --accent-warm: #b5651d;
-    --border: #dde3ea; --good: #22874a; --bad: #b3402a; --code-bg: #eef1f4;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #10141b; --bg-panel: #171d27; --bg-panel-raised: #1c2330; --bg-inset: #f4ecd8;
-      --text: #e7ebf0; --text-muted: #8b96a5; --accent: #4fd1c0; --accent-warm: #e2954a;
-      --border: #262e3a; --good: #52c07a; --bad: #e2694a; --code-bg: #0c0f14;
-    }
-  }
-  @media (prefers-color-scheme: light) {
-    :root:not([data-theme="dark"]) {
-      --bg: #f5f7f9; --bg-panel: #ffffff; --bg-panel-raised: #eef1f4; --bg-inset: #fbf6ea;
-      --text: #161b22; --text-muted: #5b6674; --accent: #0f8f7f; --accent-warm: #b5651d;
-      --border: #dde3ea; --good: #22874a; --bad: #b3402a; --code-bg: #eef1f4;
-    }
+    --bg: #ffffff; --bg-panel: #ffffff; --bg-panel-raised: #f2f3f2; --bg-inset: #f2f3f2;
+    --text: #1a1d1c; --text-muted: #74796f; --accent: #14514c; --secondary: #4f6b75;
+    --border: #e6e8e5; --good: #3f8f4f; --bad: #b5432c; --code-bg: #f2f3f1;
+    --shadow: 0 16px 40px -18px rgba(31, 36, 33, 0.18);
   }
 
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body {
     background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    line-height: 1.55; -webkit-font-smoothing: antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.6; -webkit-font-smoothing: antialiased;
   }
-  ::selection { background: var(--accent); color: #08110f; }
+  ::selection { background: var(--accent); color: var(--bg); }
   a { color: var(--accent); }
   a:focus-visible, button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  .wrap { max-width: 1000px; margin: 0 auto; padding: 56px 24px 96px; }
+  .wrap { max-width: 1220px; margin: 0 auto; padding: 48px 24px 96px; }
 
-  header.page { margin-bottom: 44px; }
-  .eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin: 0 0 10px; }
-  h1 { font-size: clamp(28px, 4vw, 38px); font-weight: 700; margin: 0 0 12px; letter-spacing: -0.01em; text-wrap: balance; }
-  .dek { font-size: 16px; color: var(--text-muted); max-width: 70ch; margin: 0; }
+  header.page { margin-bottom: 28px; }
+  .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--secondary); margin: 0 0 12px; }
+  h1 { font-size: clamp(26px, 3.6vw, 36px); font-weight: 800; margin: 0 0 14px; letter-spacing: -0.015em; text-wrap: balance; }
+  .dek { font-size: 15.5px; color: var(--text-muted); max-width: 74ch; margin: 0; }
+
+  /* --- Tab bar --- */
+  .tabbar {
+    display: flex; gap: 26px; border-bottom: 1px solid var(--border); margin: 32px 0 40px;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .tabbar::-webkit-scrollbar { display: none; }
+  .tabbar a {
+    flex: 0 0 auto; padding-bottom: 13px; font-size: 12px; font-weight: 700; letter-spacing: 0.05em;
+    text-transform: uppercase; color: var(--text-muted); text-decoration: none;
+    border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; transition: color 0.15s;
+  }
+  .tabbar a.active, .tabbar a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* --- Layout: content + sticky sidebar --- */
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 44px; align-items: start; }
+  .layout .content { min-width: 0; }
+  .sidebar { position: sticky; top: 24px; }
 
   h2 {
-    font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
-    color: var(--text-muted); margin: 0 0 16px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
-    display: flex; align-items: baseline; gap: 10px;
+    font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--text-muted); margin: 0 0 18px; padding-bottom: 12px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
   }
   h2 .phase-tag {
-    font-size: 11px; font-weight: 700; color: var(--bg); background: var(--accent);
-    padding: 2px 8px; border-radius: 4px; letter-spacing: 0.03em;
+    display: inline-block; font-size: 10.5px; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase;
+    color: var(--bg); background: var(--accent); padding: 3px 9px; border-radius: 5px;
   }
-  h3 { font-size: 14px; font-weight: 600; color: var(--text); margin: 24px 0 12px; }
+  h2.headline {
+    font-size: clamp(22px, 2.6vw, 28px); font-weight: 800; text-transform: uppercase; letter-spacing: -0.005em;
+    color: var(--text); border-bottom: none; padding-bottom: 0; margin-bottom: 26px;
+  }
+  h3 { font-size: 14px; font-weight: 700; color: var(--text); margin: 24px 0 12px; }
   section { margin-bottom: 52px; }
   p { margin: 0 0 12px; }
 
@@ -71,22 +68,41 @@
     padding: 0.1em 0.4em; font-size: 0.88em;
   }
 
-  /* --- Key findings row --- */
-  .findings { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
-  .finding {
-    background: var(--bg-panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px 16px;
+  /* --- Reasons list (checkmark + dotted divider) --- */
+  .reasons { list-style: none; margin: 0; padding: 0; }
+  .reasons li { display: flex; gap: 18px; padding: 22px 0; border-bottom: 1px dotted var(--border); }
+  .reasons li:last-child { border-bottom: none; padding-bottom: 4px; }
+  .reasons .check {
+    flex: 0 0 auto; width: 27px; height: 27px; border-radius: 50%; border: 1.5px solid var(--accent);
+    color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 13px;
+    margin-top: 2px;
   }
-  .finding .stat {
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    font-size: 26px; font-weight: 600; color: var(--accent-warm); line-height: 1;
-    font-variant-numeric: tabular-nums;
+  .reasons .body { font-size: 15px; color: var(--text); }
+  .reasons .body strong { color: var(--accent); font-weight: 700; }
+
+  /* --- Sidebar stat card --- */
+  .stat-card {
+    background: var(--bg-panel); border: 1px solid var(--border); border-radius: 16px;
+    box-shadow: var(--shadow); padding: 18px;
   }
-  .finding.good .stat { color: var(--good); }
-  .finding .stat-label { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; }
-  .finding p { font-size: 12.5px; margin: 10px 0 0; color: var(--text); }
+  .stat-card .status-pill {
+    display: block; text-align: center; background: var(--accent); color: var(--bg);
+    font-weight: 700; font-size: 12px; letter-spacing: 0.03em; text-transform: uppercase;
+    padding: 13px; border-radius: 999px; margin-bottom: 22px;
+  }
+  .stat-card .stat-single { padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px dashed var(--border); }
+  .stat-card .stat-label {
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--secondary);
+    margin-bottom: 6px;
+  }
+  .stat-card .stat-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .stat-card .stat-grid-2 .stat-label { color: var(--text-muted); }
+  .stat-card .stat-value { font-size: 21px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .stat-card .stat-grid-2 .stat-value { font-size: 18px; }
+  .stat-card .stat-value.good { color: var(--good); }
 
   /* --- Tables --- */
-  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; }
+  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; }
   table { border-collapse: collapse; width: 100%; min-width: 640px; background: var(--bg-panel); }
   th, td {
     text-align: right; padding: 9px 13px; font-size: 13px; border-bottom: 1px solid var(--border);
@@ -95,8 +111,9 @@
   th:first-child, td:first-child { text-align: left; font-family: ui-monospace, monospace; }
   thead th { color: var(--text-muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
   tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--bg-panel-raised); }
   tr.divider td { border-bottom: 1px solid var(--border); border-top: 2px solid var(--border); }
-  tr.primary td { color: var(--accent); font-weight: 600; }
+  tr.primary td { color: var(--accent); font-weight: 700; }
   .table-note { font-size: 13px; color: var(--text-muted); margin: 6px 0 18px; }
   .platform-label {
     display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700;
@@ -104,44 +121,42 @@
   }
   .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
   .dot.macos { background: var(--accent); }
-  .dot.linux { background: var(--accent-warm); }
+  .dot.linux { background: var(--secondary); }
 
-  /* --- Verdict pills --- */
-  .pill {
-    display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700;
-    padding: 3px 10px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em;
+  /* --- Status rows (sanitizers) --- */
+  .statuslist { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .statusrow {
+    display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 14px;
+    padding: 13px 16px; border-bottom: 1px solid var(--border); background: var(--bg-panel);
   }
-  .pill.pass { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
-  .pill.info { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
-  .pill.warn { background: color-mix(in srgb, var(--accent-warm) 20%, transparent); color: var(--accent-warm); }
+  .statuslist .statusrow:last-child { border-bottom: none; }
+  .statusrow .dotmark { width: 9px; height: 9px; border-radius: 50%; }
+  .statusrow.pass .dotmark { background: var(--good); }
+  .statusrow.info .dotmark { background: var(--accent); }
+  .statusrow h4 { margin: 0; font-size: 13.5px; font-weight: 700; }
+  .statusrow .result { font-size: 12.5px; color: var(--text-muted); text-align: right; font-family: ui-monospace, monospace; }
 
   /* --- Flame graph panel --- */
-  .flame-panel { background: var(--bg-inset); border-radius: 12px; border: 1px solid var(--border); padding: 4px; overflow-x: auto; }
+  .flame-panel { background: var(--bg-inset); border-radius: 8px; border: 1px solid var(--border); padding: 4px; overflow-x: auto; }
   .flame-panel svg { display: block; max-width: none; }
   .flame-caption { font-size: 13px; color: var(--text-muted); margin-top: 10px; }
 
   /* --- Hot function list --- */
   .funclist { display: flex; flex-direction: column; gap: 10px; }
   .func { display: grid; grid-template-columns: 60px 1fr auto; align-items: center; gap: 14px; }
-  .func .pct { font-family: ui-monospace, monospace; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--accent-warm); text-align: right; }
-  .func .bar-track { height: 8px; background: var(--bg-panel-raised); border-radius: 4px; overflow: hidden; border: 1px solid var(--border); }
-  .func .bar-fill { height: 100%; background: var(--accent-warm); border-radius: 4px 0 0 4px; }
-  .func.instrumentation .bar-fill { background: var(--accent); }
+  .func .pct { font-family: ui-monospace, monospace; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--accent); text-align: right; }
+  .func .bar-track { height: 7px; background: var(--bg-panel-raised); border-radius: 4px; overflow: hidden; border: 1px solid var(--border); }
+  .func .bar-fill { height: 100%; background: var(--accent); border-radius: 4px; }
+  .func.instrumentation .bar-fill { background: var(--secondary); }
   .func .name { font-family: ui-monospace, monospace; font-size: 12.5px; color: var(--text-muted); }
-
-  /* --- Sanitizer / tool cards --- */
-  .toolgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-  .toolcard { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px 16px; }
-  .toolcard h4 { margin: 0 0 8px; font-size: 14px; }
-  .toolcard .result { font-size: 13px; color: var(--text-muted); }
 
   /* --- Notes --- */
   .notes { display: grid; gap: 14px; }
   .note {
-    background: var(--bg-panel); border: 1px solid var(--border); border-left: 3px solid var(--accent-warm);
-    border-radius: 6px; padding: 14px 16px; font-size: 13.5px;
+    background: var(--bg-panel); border: 1px solid var(--border); border-left: 3px solid var(--secondary);
+    border-radius: 0 8px 8px 0; padding: 15px 17px; font-size: 13.5px;
   }
-  .note.ok { border-left-color: var(--good); }
+  .note.ok { border-left-color: var(--accent); }
   .note strong { color: var(--text); }
 
   .repro { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; overflow-x: auto; }
@@ -150,12 +165,15 @@
 
   footer.page { margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--text-muted); }
 
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { position: static; }
+  }
   @media (max-width: 760px) {
-    .findings { grid-template-columns: 1fr 1fr; }
-    .toolgrid { grid-template-columns: 1fr; }
+    .statusrow { grid-template-columns: 14px 1fr; }
+    .statusrow .result { grid-column: 1 / -1; text-align: left; padding-left: 28px; }
   }
   @media (max-width: 480px) {
-    .findings { grid-template-columns: 1fr; }
     .func { grid-template-columns: 44px 1fr; }
     .func .name { grid-column: 1 / -1; }
   }
@@ -167,40 +185,56 @@
     <h1>Every number this project makes, in one place</h1>
     <p class="dek">
       Allocation (Phase 3), CPU affinity (Phase 8), tick-to-book-update latency and CPU profiling (Phase 10),
-      and sanitizer/memory-safety results, measured on both native macOS and a Linux Docker container built
-      specifically for the tools that don't run on Apple Silicon (real hard-pin affinity, <code>perf</code>,
-      Valgrind). Every figure below came out of this repo's own binaries &mdash; see <code>docs/BENCHMARKS.md</code>
-      for the exact reproduction commands.
+      the blocking-wait rewrite (Phase 12), and sanitizer/memory-safety results, measured on both native macOS
+      and a Linux Docker container built specifically for the tools that don't run on Apple Silicon (real
+      hard-pin affinity, <code>perf</code>, Valgrind). Every figure below came out of this repo's own binaries
+      &mdash; see <code>docs/BENCHMARKS.md</code> for the exact reproduction commands.
     </p>
   </header>
 
-  <section>
-    <h2>At a glance</h2>
-    <div class="findings">
-      <div class="finding good">
-        <div class="stat">0</div>
-        <div class="stat-label">heap allocations, pool-backed book</div>
-        <p>4,000,000 messages, both platforms &mdash; confirmed via a real global-operator-override counter, not assumed.</p>
-      </div>
-      <div class="finding">
-        <div class="stat">0 / 45</div>
-        <div class="stat-label">macOS affinity hints accepted</div>
-        <p><code>KERN_NOT_SUPPORTED</code> &mdash; outright rejected, not a soft-ignored hint. Linux: 45/45 genuine hard pins.</p>
-      </div>
-      <div class="finding">
-        <div class="stat">333ns</div>
-        <div class="stat-label">book update, p50 (macOS)</div>
-        <p>Sub-microsecond. The polling architecture, not the algorithm, dominates end-to-end latency.</p>
-      </div>
-      <div class="finding good">
-        <div class="stat">0</div>
-        <div class="stat-label">memory defects, Valgrind</div>
-        <p><code>ERROR SUMMARY: 0 errors from 0 contexts</code> &mdash; every binary checked, full <code>--track-origins=yes</code>.</p>
-      </div>
-    </div>
+  <nav class="tabbar" id="tabbar">
+    <a href="#glance" class="active">Overview</a>
+    <a href="#allocation">Allocation</a>
+    <a href="#affinity">Affinity</a>
+    <a href="#latency">Latency</a>
+    <a href="#phase12">Phase 12</a>
+    <a href="#flamegraph">Profiling</a>
+    <a href="#sanitizers">Sanitizers</a>
+    <a href="#reproduce">Reproduce</a>
+  </nav>
+
+  <div class="layout">
+    <div class="content">
+
+  <section id="glance">
+    <h2 class="headline">At a glance</h2>
+    <ul class="reasons">
+      <li>
+        <span class="check">&#10003;</span>
+        <span class="body">Every number here was <strong>measured in this repo's own binaries</strong>, on real
+          hardware (native Apple Silicon macOS and a Linux Docker container) &mdash; not estimated.</span>
+      </li>
+      <li>
+        <span class="check">&#10003;</span>
+        <span class="body"><strong>Zero heap allocations</strong> for 4,000,000 messages, both platforms,
+          confirmed via a real global-operator-override counter, and <strong>zero memory defects</strong> across
+          ASan, UBSan, TSan, and Valgrind.</span>
+      </li>
+      <li>
+        <span class="check">&#10003;</span>
+        <span class="body">The order book itself is sub-microsecond (<strong>333ns</strong> p50 on macOS) &mdash;
+          the polling architecture around it, not the algorithm, was the actual bottleneck.</span>
+      </li>
+      <li>
+        <span class="check">&#10003;</span>
+        <span class="body">Phase 12's blocking-wait rewrite delivered a <strong>8.1&times; p50 latency win on
+          macOS</strong> (2.3&times; on Linux) over the polling baseline, verified with the same rigor as every
+          other concurrency change in this project.</span>
+      </li>
+    </ul>
   </section>
 
-  <section>
+  <section id="allocation">
     <h2><span class="phase-tag">Phase 3</span> Allocation benchmark</h2>
     <p class="table-note">
       <code>bench/mdfh_allocation_bench</code> &mdash; 2,000,000 Add+remove cycles (4,000,000 messages), 20,000
@@ -225,7 +259,7 @@
     </p>
   </section>
 
-  <section>
+  <section id="affinity">
     <h2><span class="phase-tag">Phase 8</span> CPU affinity / pinning benchmark</h2>
     <p class="table-note">
       <code>bench/mdfh_pinning_bench</code> &mdash; full live pipeline, 8 shards, 1,000,000 messages, 5 runs per
@@ -256,7 +290,7 @@
     </div>
   </section>
 
-  <section>
+  <section id="latency">
     <h2><span class="phase-tag">Phase 10</span> Tick-to-book-update latency percentiles</h2>
     <p class="table-note">
       <code>bench/mdfh_latency_bench</code> &mdash; full live pipeline, 8 shards, 1,000,000 messages, 0.05% packet
@@ -302,11 +336,54 @@
       <code>book update</code> &mdash; the thing Phase 3's zero-allocation design exists for &mdash; is sub-microsecond
       at p50 on both platforms. <code>input_queue_wait</code>/<code>output_queue_wait</code>, both ~32&micro;s mean
       on macOS, closely track the pipeline's own <code>sleep_for(50&micro;s)</code> idle-poll interval
-      (<code>io/pipeline_runner.cpp</code>) &mdash; that polling loop, not the algorithm, is the dominant cost.
+      (<code>io/pipeline_runner.cpp</code>) &mdash; that polling loop, not the algorithm, was the dominant cost.
     </p>
   </section>
 
-  <section>
+  <section id="phase12">
+    <h2><span class="phase-tag">Phase 12</span> Poll replaced with <code>atomic::wait</code>/<code>notify</code> &mdash; before/after</h2>
+    <p class="table-note">
+      The <code>sleep_for(50&micro;s)</code> poll above was replaced with a genuine OS-level block
+      (<code>SpscRingBuffer::wait_for_data()</code>/<code>notify_waiters()</code>, C++20
+      <code>std::atomic::wait</code>/<code>notify</code>). A missed-wakeup bug &mdash; notifying on a value
+      that hadn't changed, so a shutdown-only wake was silently absorbed &mdash; was found and fixed via a
+      dedicated 2-thread test <em>before</em> it reached the pipeline (see <code>concurrency/spsc_ring_buffer.hpp</code>).
+    </p>
+    <p class="platform-label"><span class="dot macos"></span> macOS &mdash; tick &rarr; book update</p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Metric</th><th>Before (poll)</th><th>After (blocking)</th><th>Improvement</th></tr></thead>
+        <tbody>
+          <tr><td>mean</td><td>33,420 ns</td><td>5,306 ns</td><td>6.3&times;</td></tr>
+          <tr class="primary"><td>p50</td><td>32,417 ns</td><td>4,000 ns</td><td>8.1&times;</td></tr>
+          <tr><td>p99</td><td>68,250 ns</td><td>8,542 ns</td><td>8.0&times;</td></tr>
+          <tr><td>p99.9</td><td>92,500 ns</td><td>32,834 ns</td><td>2.8&times;</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="platform-label"><span class="dot linux"></span> Linux (Docker) &mdash; tick &rarr; book update</p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Metric</th><th>Before (poll)</th><th>After (blocking)</th><th>Improvement</th></tr></thead>
+        <tbody>
+          <tr><td>mean</td><td>70,595 ns</td><td>31,031 ns</td><td>2.3&times;</td></tr>
+          <tr class="primary"><td>p50</td><td>67,625 ns</td><td>29,208 ns</td><td>2.3&times;</td></tr>
+          <tr><td>p99</td><td>137,916 ns</td><td>62,292 ns</td><td>2.2&times;</td></tr>
+          <tr><td>p99.9</td><td>325,750 ns</td><td>80,500 ns</td><td>4.0&times;</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="table-note">
+      Both platforms improved substantially but by different amounts, and the gap is itself a real, measured
+      finding: a fresh macOS <code>sample</code> capture shows <em>zero</em> <code>nanosleep</code> left in the
+      profile, while Linux's <code>perf</code> profile shows the poll replaced by <code>__sched_yield</code>/
+      <code>std::__atomic_wait_address_v</code> &mdash; glibc's <code>atomic::wait</code> spin-yields before
+      committing to a real futex block, macOS's implementation doesn't. See <code>docs/BENCHMARKS.md</code>'s
+      Phase 12 section and <code>docs/perf/phase12/</code> for the full artifacts.
+    </p>
+  </section>
+
+  <section id="flamegraph">
     <h2><span class="phase-tag">Phase 10</span> CPU profiling &mdash; <code>perf record</code> flame graph (Linux/Docker)</h2>
     <div class="flame-panel">
 <svg version="1.1" width="1200" height="518" onload="init(evt)" viewBox="0 0 1200 518" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
@@ -1770,7 +1847,7 @@
       </div>
     </div>
     <p class="table-note">
-      Amber: the pipeline's own business logic. Teal: cost this measurement pass itself introduced. Bar width is
+      Teal: the pipeline's own business logic. Slate: cost this measurement pass itself introduced. Bar width is
       each function's self-time relative to the largest non-sleep entry (33.46%).
     </p>
 
@@ -1795,35 +1872,41 @@
     </div>
   </section>
 
-  <section>
+  <section id="sanitizers">
     <h2>Sanitizers &amp; memory safety</h2>
-    <div class="toolgrid">
-      <div class="toolcard">
-        <h4>ASan + UBSan <span class="pill pass">pass</span></h4>
-        <div class="result">macOS, <code>debug</code> preset<br>66/66 tests &middot; 3 clean runs</div>
+    <div class="statuslist">
+      <div class="statusrow pass">
+        <span class="dotmark"></span>
+        <h4>ASan + UBSan</h4>
+        <span class="result">macOS, <code>debug</code> preset &middot; 71/71 tests &middot; 3 clean runs</span>
       </div>
-      <div class="toolcard">
-        <h4>TSan <span class="pill pass">pass</span></h4>
-        <div class="result">macOS, <code>debug-tsan</code> preset<br>66/66 tests &middot; 3 clean runs (+ dozens of historical adversarial-timing reruns)</div>
+      <div class="statusrow pass">
+        <span class="dotmark"></span>
+        <h4>TSan</h4>
+        <span class="result">macOS, <code>debug-tsan</code> preset &middot; 71/71 tests &middot; 5+ clean runs (+ dozens of historical adversarial-timing reruns)</span>
       </div>
-      <div class="toolcard">
-        <h4>Valgrind <span class="pill info">0 defects</span></h4>
-        <div class="result">Linux (Docker), sanitizer-free debug build<br>64/66 tests &middot; <code>ERROR SUMMARY: 0 errors from 0 contexts</code>, every binary</div>
+      <div class="statusrow info">
+        <span class="dotmark"></span>
+        <h4>Valgrind</h4>
+        <span class="result">Linux (Docker), sanitizer-free debug build &middot; 69/71 tests &middot; 0 memory defects</span>
       </div>
     </div>
     <div class="notes" style="margin-top:14px;">
       <div class="note">
         <strong>Valgrind's 2 non-passing tests are not memory defects</strong> &mdash; confirmed, not assumed.
         (1) A test counting heap calls via a custom global <code>operator new</code> override gets overridden by
-        Valgrind's own allocator interception (a known tool interaction). (2) A test with a 10-real-time-second
-        deadline for observing a live event breaks under Valgrind's ~20-50x slowdown. Both runs still report
-        <code>0 errors from 0 contexts</code> alongside the failure &mdash; the failures are unrelated to memory
-        correctness. Full detail: <code>docs/perf/valgrind/README.md</code>.
+        Valgrind's own allocator interception (a known tool interaction) &mdash; fails identically before and
+        after Phase 12. (2) A test with a hardcoded short real-time window breaks under Valgrind's ~20-50x
+        slowdown &mdash; but <em>which</em> test changed after Phase 12: the old 10-second gap-detection test now
+        <em>passes</em> (the blocking-wait mechanism's timing happens to fit its window better), while a
+        different 2-millisecond publisher-shutdown-handshake test now fails instead. Same category both times;
+        every run still reports <code>0 errors from 0 contexts</code> alongside the failure. Full detail:
+        <code>docs/perf/valgrind/README.md</code>.
       </div>
     </div>
   </section>
 
-  <section>
+  <section id="reproduce">
     <h2>Reproduce</h2>
     <div class="repro">
       <pre><span class="comment"># Phase 3 + 8 + 10 benchmarks, native, whichever platform you're on</span>
@@ -1843,9 +1926,60 @@ cmake --preset debug-tsan &amp;&amp; cmake --build build/debug-tsan -j &amp;&amp
     </div>
   </section>
 
+    </div>
+
+    <aside class="sidebar">
+      <div class="stat-card">
+        <span class="status-pill">71 / 71 tests passing</span>
+        <div class="stat-single">
+          <div class="stat-label">Heap allocations</div>
+          <div class="stat-value good">0</div>
+        </div>
+        <div class="stat-grid-2">
+          <div>
+            <div class="stat-label">Phase 12 speedup</div>
+            <div class="stat-value">8.1&times;</div>
+          </div>
+          <div>
+            <div class="stat-label">book update, p50</div>
+            <div class="stat-value">333 ns</div>
+          </div>
+          <div>
+            <div class="stat-label">memory defects</div>
+            <div class="stat-value good">0</div>
+          </div>
+          <div>
+            <div class="stat-label">phases shipped</div>
+            <div class="stat-value">13</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
   <footer class="page">
     Low-Latency Market Data Feed Handler &middot; consolidated from <code>docs/BENCHMARKS.md</code>,
     <code>docs/perf/</code>, and <code>docs/perf/valgrind/</code> &mdash; every number measured in this repo's
     own binaries, not estimated.
   </footer>
 </div>
+
+<script>
+  (function () {
+    var links = document.querySelectorAll('#tabbar a');
+    var sections = Array.prototype.slice.call(links).map(function (a) {
+      return document.querySelector(a.getAttribute('href'));
+    });
+    if (!('IntersectionObserver' in window)) return;
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        var idx = sections.indexOf(entry.target);
+        if (idx === -1) return;
+        links.forEach(function (a) { a.classList.remove('active'); });
+        links[idx].classList.add('active');
+      });
+    }, { rootMargin: '-20% 0px -70% 0px' });
+    sections.forEach(function (s) { if (s) observer.observe(s); });
+  })();
+</script>
