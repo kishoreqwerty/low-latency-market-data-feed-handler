@@ -31,8 +31,12 @@ public:
     PipelineRunner& operator=(const PipelineRunner&) = delete;
 
     // Starts the network I/O thread and one decoder thread per shard. Call
-    // once.
-    void start();
+    // once. `enable_affinity` gates Phase 8's macOS affinity-tag hinting
+    // (see affinity/thread_affinity.hpp and this .cpp's tag-grouping
+    // comment) -- defaulted on, but exposed so bench/pinning_bench.cpp can
+    // run the identical pipeline with it on and off for a real before/after
+    // comparison.
+    void start(bool enable_affinity = true);
 
     // Cooperative shutdown: signals the network I/O coroutine to stop at
     // its next check (it may already be mid-flight -- see
@@ -56,6 +60,16 @@ public:
     const ShardedPipeline& pipeline() const noexcept { return pipeline_; }
     const FeedGenerator& feed() const noexcept { return feed_; }
 
+    // Diagnostic for bench/pinning_bench.cpp: how many of this run's
+    // affinity-tag hints (network I/O thread + one per shard) the kernel
+    // actually reported KERN_SUCCESS for, out of how many were attempted.
+    // Only meaningful when start() was called with enable_affinity=true --
+    // both stay 0 otherwise. See affinity/thread_affinity.hpp: on this
+    // project's Apple Silicon dev machine, attempted > 0 with applied == 0
+    // is the expected, verified result, not a bug.
+    std::size_t affinity_hints_applied() const noexcept { return affinity_hints_applied_; }
+    std::size_t affinity_hints_attempted() const noexcept { return affinity_hints_attempted_; }
+
 private:
     FeedGenerator feed_;
     ShardedPipeline pipeline_;
@@ -65,6 +79,9 @@ private:
 
     std::thread network_io_thread_;
     std::vector<std::thread> shard_threads_;
+
+    std::size_t affinity_hints_applied_   = 0;
+    std::size_t affinity_hints_attempted_ = 0;
 
     bool started_ = false;
     bool joined_  = false;

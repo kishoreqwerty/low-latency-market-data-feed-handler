@@ -81,6 +81,20 @@ public:
     // num_shards must be in [1, orderbook::kMaxShards].
     explicit ShardedPipeline(std::size_t num_shards);
 
+    // Explicit (not defaulted): see the .cpp for why destroying shards_ in
+    // the default member-wise order, without re-asserting each shard's
+    // current_shard_index first, silently corrupts the per-shard pools
+    // (object_pool.hpp).
+    ~ShardedPipeline();
+
+    // order_route_mutex_ makes this type non-movable anyway (std::mutex
+    // isn't movable); deleted explicitly so that stays true even if the
+    // mutex is ever refactored away.
+    ShardedPipeline(ShardedPipeline&&)                 = delete;
+    ShardedPipeline& operator=(ShardedPipeline&&)      = delete;
+    ShardedPipeline(const ShardedPipeline&)            = delete;
+    ShardedPipeline& operator=(const ShardedPipeline&) = delete;
+
     // Decodes `raw`, determines its shard (via symbol for AddOrder, or via
     // the order_id routing table recorded by an earlier AddOrder for
     // Cancel/Execute/Replace), and enqueues it onto that shard's ring

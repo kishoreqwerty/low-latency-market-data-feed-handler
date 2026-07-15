@@ -172,3 +172,49 @@ TEST_CASE("A PipelineRunner destroyed without an explicit stop() still shuts dow
     // implicit stop()+join() worked. Nothing left to check afterward.
     SUCCEED("PipelineRunner destructor cleaned up without hanging");
 }
+
+TEST_CASE("Repeated PipelineRunner construct/run/destroy cycles in one process don't leak pool capacity",
+          "[pipeline_e2e][object_pool]") {
+    // Regression test for a real bug found while building Phase 8's
+    // pinning benchmark: ShardedPipeline's destructor (io/shard_demux.cpp)
+    // used to destroy every shard's OrderBooks with current_shard_index
+    // stuck at whatever the destroying thread's default was (0) instead of
+    // each shard's own index -- see ~ShardedPipeline()'s comment for the
+    // full mechanism. Freed nodes silently landed in the WRONG shard's
+    // pool instead of their own: shards other than 0 leaked (their pools'
+    // in_use never decremented across runs) while shard 0's pool got
+    // corrupted with blocks that didn't belong to its storage array.
+    //
+    // Any SINGLE PipelineRunner run stayed safely under
+    // orderbook::kShardOrderPoolCapacity, so this never surfaced in any
+    // prior test -- it only showed up when something repeatedly
+    // constructed and destroyed PipelineRunner within one process, which
+    // is exactly what bench/pinning_bench.cpp does (multiple timed runs
+    // in a single benchmark binary): each run's leaked growth accumulated
+    // on top of the last until a shard's pool threw std::bad_alloc after
+    // roughly a dozen runs. This test reruns that exact pattern, with
+    // enough iterations to have reliably crashed pre-fix, as a standing
+    // regression guard -- object_pool.hpp's debug-mode deallocate()
+    // assertion (also added alongside this fix) would additionally fail
+    // loudly under the `debug`/`debug-tsan` presets if this regresses.
+    constexpr std::size_t kNumShards  = 4;
+    constexpr int kIterations         = 30;
+    constexpr std::size_t kMsgPerIter = 50'000;
+
+    for (int iter = 0; iter < kIterations; ++iter) {
+        FeedGenerator::Config feed_config{
+            .symbols          = eight_symbols(),
+            .num_shards       = kNumShards,
+            .message_count    = kMsgPerIter,
+            .packet_loss_rate = 0.0,
+            .seed             = static_cast<std::uint64_t>(2000 + iter),
+        };
+        PipelineRunner runner(feed_config, kNumShards);
+        runner.start();
+        runner.join();
+        // Destructor runs here, at the end of this iteration -- exactly
+        // the moment the original bug corrupted/leaked pool state.
+    }
+
+    SUCCEED("completed repeated construct/run/destroy cycles without pool exhaustion");
+}

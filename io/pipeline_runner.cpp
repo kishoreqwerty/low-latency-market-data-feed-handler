@@ -2,9 +2,45 @@
 
 #include <chrono>
 
+#include "affinity/thread_affinity.hpp"
 #include "io/async_network_reader.hpp"
 
 namespace mdfh::io {
+
+namespace {
+
+// Phase 8 affinity-tag grouping decision.
+//
+// Every shard is a fully independent pipeline: its own SPSC ring buffer
+// (Shard::queue), its own gap detector, its own symbol->OrderBook map, and
+// (as of the Phase 7 pool redesign) its own independent PoolAllocator
+// instances, touched only by that shard's own decoder thread -- see
+// object_pool.hpp and shard_demux.hpp. No two shards' threads ever read or
+// write the same memory. Grouping two different shards' threads under one
+// affinity tag would therefore buy nothing (there's no shared data to gain
+// locality on) while creating pure L2 contention between two otherwise
+// unrelated workloads -- exactly the "grouping unrelated shards'
+// communicating stages together" mistake to avoid. So: each shard gets its
+// own dedicated tag, unshared with any other shard.
+//
+// The network I/O thread is the one thread that DOES cross shard
+// boundaries -- it's the sole producer for every shard's ring buffer (see
+// ShardedPipeline::demux). But precisely because it feeds ALL shards, not
+// one, it has no single natural partner to share a tag with: grouping it
+// with shard 0's tag, say, would arbitrarily privilege shard 0's cache
+// locality over every other shard's for no principled reason. It gets its
+// own dedicated tag instead, distinct from every shard tag.
+//
+// Once Phase 9 adds a per-shard publisher thread, that thread SHOULD share
+// its shard's decoder tag: within one shard, the decoder thread is the
+// sole producer for that shard's book-delta output queue and the
+// publisher thread is its sole consumer -- a genuine producer/consumer
+// data-sharing relationship, unlike the cross-shard case above, so L2
+// locality between exactly those two threads is a real potential win.
+constexpr affinity::AffinityTag kNetworkIoAffinityTag = 1;
+constexpr affinity::AffinityTag kShardAffinityTagBase = 2;  // shard i -> kShardAffinityTagBase + i
+
+}  // namespace
 
 PipelineRunner::PipelineRunner(FeedGenerator::Config feed_config, std::size_t num_shards)
     : feed_(std::move(feed_config)), pipeline_(num_shards) {}
@@ -15,7 +51,7 @@ PipelineRunner::~PipelineRunner() {
     }
 }
 
-void PipelineRunner::start() {
+void PipelineRunner::start(bool enable_affinity) {
     started_ = true;
 
     network_io_thread_ = std::thread([this] {
@@ -29,6 +65,16 @@ void PipelineRunner::start() {
         (void)task;
         reactor.run_until([this] { return stop_requested_.load(std::memory_order_acquire); });
     });
+    if (enable_affinity) {
+        // Safe to tag right after construction, before the thread has done
+        // any work -- set_thread_affinity_tag() looks up the thread's Mach
+        // port by pthread_t, it doesn't need to run ON that thread (see
+        // thread_affinity.cpp).
+        ++affinity_hints_attempted_;
+        if (affinity::set_thread_affinity_tag(network_io_thread_, kNetworkIoAffinityTag)) {
+            ++affinity_hints_applied_;
+        }
+    }
 
     shard_threads_.reserve(pipeline_.num_shards());
     for (std::size_t i = 0; i < pipeline_.num_shards(); ++i) {
@@ -57,6 +103,13 @@ void PipelineRunner::start() {
                 }
             }
         });
+        if (enable_affinity) {
+            ++affinity_hints_attempted_;
+            if (affinity::set_thread_affinity_tag(shard_threads_.back(),
+                                                   kShardAffinityTagBase + static_cast<affinity::AffinityTag>(i))) {
+                ++affinity_hints_applied_;
+            }
+        }
     }
 }
 

@@ -7,7 +7,7 @@ add_library(mdfh_io
     pipeline_runner.cpp
 )
 target_include_directories(mdfh_io PUBLIC ${CMAKE_SOURCE_DIR})
-target_link_libraries(mdfh_io PUBLIC mdfh_project_options mdfh_protocol mdfh_orderbook mdfh_concurrency Threads::Threads)
+target_link_libraries(mdfh_io PUBLIC mdfh_project_options mdfh_protocol mdfh_orderbook mdfh_concurrency mdfh_affinity Threads::Threads)
 
 add_executable(mdfh_io_test
     test_shard_demux.cpp

@@ -259,20 +259,35 @@ TEST_CASE("Different shards' pools are genuinely independent instances, not shar
     // in this file, which all implicitly use the default slot 0.
     constexpr std::size_t kOrdersEach = kShardOrderPoolCapacity - 100;  // just under, headroom for map/hashmap nodes
 
+    // unique_ptr, not stack locals: each book must be DESTROYED while its
+    // own shard index is current, not just constructed under it (see
+    // io/shard_demux.cpp's ~ShardedPipeline() for the real bug this
+    // mirrors -- deallocate() during destruction must run with
+    // current_shard_index set to whichever shard originally allocated
+    // that memory, or freed blocks land in the wrong pool's free list).
+    // Stack locals would destroy in reverse declaration order at the end
+    // of this scope, both under whatever index happened to be set last --
+    // wrong for at least one of them. Explicit .reset() calls below let
+    // each be destroyed under the correct index instead.
     set_current_shard_index(14);
-    OrderBook shard_a_book;
+    auto shard_a_book      = std::make_unique<OrderBook>();
     protocol::OrderId id_a = 1;
-    fill_book_with_orders(shard_a_book, id_a, static_cast<protocol::Quantity>(kOrdersEach));
+    fill_book_with_orders(*shard_a_book, id_a, static_cast<protocol::Quantity>(kOrdersEach));
 
     set_current_shard_index(15);
-    OrderBook shard_b_book;
+    auto shard_b_book      = std::make_unique<OrderBook>();
     protocol::OrderId id_b = 10'000'000;  // distinct range, avoids any cross-shard order_id collision
-    fill_book_with_orders(shard_b_book, id_b, static_cast<protocol::Quantity>(kOrdersEach));
+    fill_book_with_orders(*shard_b_book, id_b, static_cast<protocol::Quantity>(kOrdersEach));
 
     // Both books, still alive simultaneously, both genuinely populated --
     // proof neither pool starved the other.
-    REQUIRE(shard_a_book.best_bid_ask().bid.has_value());
-    REQUIRE(shard_b_book.best_bid_ask().bid.has_value());
+    REQUIRE(shard_a_book->best_bid_ask().bid.has_value());
+    REQUIRE(shard_b_book->best_bid_ask().bid.has_value());
+
+    set_current_shard_index(15);
+    shard_b_book.reset();
+    set_current_shard_index(14);
+    shard_a_book.reset();
 
     set_current_shard_index(0);  // restore the default for any tests that run after this one
 }

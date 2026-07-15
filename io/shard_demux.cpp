@@ -20,6 +20,43 @@ ShardedPipeline::ShardedPipeline(std::size_t num_shards) {
     }
 }
 
+ShardedPipeline::~ShardedPipeline() {
+    // Each Shard's OrderBooks were populated by that shard's own decoder
+    // thread (see io/pipeline_runner.cpp), which called
+    // set_current_shard_index(i) exactly once at thread start -- every
+    // pool-backed node those OrderBooks hold was allocated from shard i's
+    // own FixedBlockPool instances (object_pool.hpp). But this destructor
+    // only ever runs after PipelineRunner has already joined every shard
+    // thread, so it executes on some OTHER thread (typically main), whose
+    // current_shard_index defaults to 0 -- it never called
+    // set_current_shard_index for any of these shards.
+    //
+    // Left to the implicitly-generated destructor, shards_'s own
+    // destruction would deallocate every shard's nodes while
+    // current_shard_index==0 the whole time: shards 1..N-1's pools would
+    // leak (in_use never decrements, since their freed blocks land on
+    // shard 0's free list instead of their own) while shard 0's pool gets
+    // silently corrupted with blocks that don't actually belong to its
+    // storage array. This was caught empirically, not hypothetically: a
+    // benchmark that repeatedly constructed and destroyed ShardedPipeline
+    // in one process accumulated exactly this leak across runs until a
+    // shard's pool hit capacity and threw std::bad_alloc -- see
+    // bench/pinning_bench.cpp's history and object_pool.hpp's debug-mode
+    // deallocate() assertion, added at the same time, which now catches
+    // this class of bug immediately instead of only after enough leaked
+    // capacity accumulates to overflow.
+    //
+    // Fix: explicitly re-set current_shard_index before destroying each
+    // shard in turn, on this one thread. Safe without any lock -- by the
+    // time this destructor runs, no other thread touches any of this
+    // memory, so reusing one thread sequentially across every shard index
+    // has nothing to race with.
+    for (std::size_t i = 0; i < shards_.size(); ++i) {
+        orderbook::set_current_shard_index(i);
+        shards_[i].reset();
+    }
+}
+
 std::size_t ShardedPipeline::shard_for_symbol(const protocol::Symbol& symbol) const noexcept {
     return io::shard_for_symbol(symbol, shards_.size());
 }

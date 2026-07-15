@@ -39,8 +39,24 @@
 // set_current_shard_index(i), so two different shards' pools for the same
 // node type never share memory, and the lazy first-use construction of
 // pools[i] is itself only ever performed by that one thread.
+//
+// That invariant covers allocation while a shard's thread is alive, but
+// NOT destruction after it exits: when a populated OrderBook is later
+// destroyed on some other thread (e.g. main, after every shard thread has
+// been joined -- the normal PipelineRunner shutdown path), that thread's
+// own current_shard_index is whatever IT last set, not the index that
+// originally allocated the memory being freed. Getting this wrong
+// silently corrupts one pool while leaking another rather than crashing
+// where the mistake actually is -- see io/shard_demux.cpp's
+// ~ShardedPipeline() for the real bug this caused and its fix, and this
+// file's deallocate() for a debug-mode assertion that now catches it
+// immediately instead of only after enough leaked capacity accumulates to
+// overflow. The rule for any code destroying pool-backed objects across a
+// shard-index change: set_current_shard_index() to the ORIGINAL owning
+// shard immediately before that shard's objects are destroyed.
 
 #include <array>
+#include <cassert>
 #include <cstddef>
 #include <cstring>
 #include <memory>
@@ -100,6 +116,23 @@ public:
     }
 
     void deallocate(void* p) noexcept {
+        // Debug-only (compiled out under NDEBUG, i.e. the benchmark
+        // preset -- zero cost there): a pointer genuinely allocated from
+        // THIS pool must fall within this pool's own storage_ array. This
+        // exists because of a real bug it would have caught immediately:
+        // ShardedPipeline's destructor (io/shard_demux.cpp) used to
+        // destroy every shard's OrderBooks while current_shard_index was
+        // stuck at whatever the destroying thread's default was (0, since
+        // that thread never called set_current_shard_index) instead of
+        // each shard's own index -- silently returning shards 1..N-1's
+        // freed nodes into shard 0's free list. That corrupts shard 0's
+        // pool (this assertion) while leaking shards 1..N-1's (their
+        // in_use never decrements, eventually throwing std::bad_alloc once
+        // enough runs accumulate past capacity) -- a confusing, far-away
+        // symptom without this check firing right at the actual mistake.
+        assert(p >= storage_.data() && p < storage_.data() + storage_.size() &&
+               "deallocate() called with a pointer from a different pool's storage -- wrong shard index at "
+               "destruction time?");
         write_next(p, free_list_);
         free_list_ = p;
         --in_use_;
