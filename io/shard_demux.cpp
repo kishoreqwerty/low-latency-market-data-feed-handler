@@ -24,6 +24,11 @@ std::size_t ShardedPipeline::shard_for_symbol(const protocol::Symbol& symbol) co
     return io::shard_for_symbol(symbol, shards_.size());
 }
 
+std::size_t ShardedPipeline::routing_table_size() const {
+    std::lock_guard<std::mutex> lock(order_route_mutex_);
+    return order_route_.size();
+}
+
 std::expected<std::size_t, DemuxError> ShardedPipeline::demux(std::span<const std::byte> raw) {
     auto decoded = protocol::decode(raw);
     if (!decoded) {
@@ -37,29 +42,37 @@ std::expected<std::size_t, DemuxError> ShardedPipeline::demux(std::span<const st
             std::size_t shard_index;
             protocol::Symbol symbol;
 
-            if constexpr (std::is_same_v<Msg, protocol::AddOrder>) {
-                shard_index = shard_for_symbol(msg.symbol);
-                symbol      = msg.symbol;
-                order_route_[msg.order_id] = OrderRoute{shard_index, symbol};
-            } else if constexpr (std::is_same_v<Msg, protocol::ReplaceOrder>) {
-                auto it = order_route_.find(msg.old_order_id);
-                if (it == order_route_.end()) {
-                    return std::unexpected(DemuxError::UnroutableOrderId);
-                }
-                shard_index = it->second.shard_index;
-                symbol      = it->second.symbol;
-                order_route_.erase(it);
-                order_route_[msg.new_order_id] = OrderRoute{shard_index, symbol};
-            } else {
-                // CancelOrder or ExecuteOrder: both key off order_id alone.
-                auto it = order_route_.find(msg.order_id);
-                if (it == order_route_.end()) {
-                    return std::unexpected(DemuxError::UnroutableOrderId);
-                }
-                shard_index = it->second.shard_index;
-                symbol      = it->second.symbol;
-                if constexpr (std::is_same_v<Msg, protocol::CancelOrder>) {
-                    order_route_.erase(it);  // cancel always fully removes the order
+            // Scoped narrowly to the order_route_ bookkeeping -- released
+            // before the ring-buffer push below, so a shard thread's brief
+            // wait on order_route_mutex_ (in process_shard(), for the
+            // Execute cleanup) is never extended by an unrelated push.
+            {
+                std::lock_guard<std::mutex> lock(order_route_mutex_);
+
+                if constexpr (std::is_same_v<Msg, protocol::AddOrder>) {
+                    shard_index                = shard_for_symbol(msg.symbol);
+                    symbol                      = msg.symbol;
+                    order_route_[msg.order_id] = OrderRoute{shard_index, symbol};
+                } else if constexpr (std::is_same_v<Msg, protocol::ReplaceOrder>) {
+                    auto it = order_route_.find(msg.old_order_id);
+                    if (it == order_route_.end()) {
+                        return std::unexpected(DemuxError::UnroutableOrderId);
+                    }
+                    shard_index = it->second.shard_index;
+                    symbol      = it->second.symbol;
+                    order_route_.erase(it);
+                    order_route_[msg.new_order_id] = OrderRoute{shard_index, symbol};
+                } else {
+                    // CancelOrder or ExecuteOrder: both key off order_id alone.
+                    auto it = order_route_.find(msg.order_id);
+                    if (it == order_route_.end()) {
+                        return std::unexpected(DemuxError::UnroutableOrderId);
+                    }
+                    shard_index = it->second.shard_index;
+                    symbol      = it->second.symbol;
+                    if constexpr (std::is_same_v<Msg, protocol::CancelOrder>) {
+                        order_route_.erase(it);  // cancel always fully removes the order
+                    }
                 }
             }
 
@@ -69,33 +82,41 @@ std::expected<std::size_t, DemuxError> ShardedPipeline::demux(std::span<const st
         *decoded);
 }
 
-void ShardedPipeline::process_pending() {
-    for (auto& shard_ptr : shards_) {
-        Shard& s = *shard_ptr;
-        QueuedMessage qm;
-        while (s.queue.try_pop(qm)) {
-            s.gap_detector.observe(std::visit([](auto&& m) { return m.seq_num; }, qm.message));
+bool ShardedPipeline::process_shard(std::size_t shard_index) {
+    Shard& s        = *shards_[shard_index];
+    bool did_work   = false;
+    QueuedMessage qm;
+    while (s.queue.try_pop(qm)) {
+        did_work = true;
+        s.gap_detector.observe(std::visit([](auto&& m) { return m.seq_num; }, qm.message));
 
-            orderbook::OrderBook& book = s.books[qm.symbol];
-            std::visit(
-                [&](auto&& m) {
-                    (void)book.apply(m);
+        orderbook::OrderBook& book = s.books[qm.symbol];
+        std::visit(
+            [&](auto&& m) {
+                (void)book.apply(m);
 
-                    // Cancel and Replace's old_order_id are already removed
-                    // from order_route_ at demux() time, since those wire
-                    // messages guarantee the order is gone/renamed on their
-                    // own. An Execute might be partial or full, and only
-                    // the book -- after applying it -- knows which; that's
-                    // why this one cleanup happens here instead of there.
-                    using Msg = std::decay_t<decltype(m)>;
-                    if constexpr (std::is_same_v<Msg, protocol::ExecuteOrder>) {
-                        if (!book.has_order(m.order_id)) {
-                            order_route_.erase(m.order_id);
-                        }
+                // Cancel and Replace's old_order_id are already removed
+                // from order_route_ at demux() time, since those wire
+                // messages guarantee the order is gone/renamed on their
+                // own. An Execute might be partial or full, and only the
+                // book -- after applying it -- knows which; that's why
+                // this one cleanup happens here instead of there.
+                using Msg = std::decay_t<decltype(m)>;
+                if constexpr (std::is_same_v<Msg, protocol::ExecuteOrder>) {
+                    if (!book.has_order(m.order_id)) {
+                        std::lock_guard<std::mutex> lock(order_route_mutex_);
+                        order_route_.erase(m.order_id);
                     }
-                },
-                qm.message);
-        }
+                }
+            },
+            qm.message);
+    }
+    return did_work;
+}
+
+void ShardedPipeline::process_pending() {
+    for (std::size_t i = 0; i < shards_.size(); ++i) {
+        process_shard(i);
     }
 }
 

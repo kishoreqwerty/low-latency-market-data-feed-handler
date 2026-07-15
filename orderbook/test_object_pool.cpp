@@ -61,7 +61,22 @@ TEST_CASE("FixedBlockPool reuses a block after it's freed", "[object_pool]") {
 
 TEST_CASE("PoolAllocator backs a std::list with zero heap allocations", "[object_pool]") {
     // Distinct capacity from other tests/OrderBook so this exercises its own
-    // pool singleton, independent of anything else in the binary.
+    // pool instance, independent of anything else in the binary.
+    {
+        // Warm-up: the first-ever use of PoolAllocator<int, 8> on this
+        // thread's current shard slot lazily constructs that shard's Pool
+        // via std::make_unique -- a genuine, one-time heap allocation
+        // (this is what actually makes per-shard pools lock-free: a
+        // process-wide static singleton lived in static storage with zero
+        // allocation ever, but that's exactly the shared-across-threads
+        // object this redesign eliminates). Same "startup cost is fine,
+        // the hot path must be zero" pattern already used for
+        // order_index_.reserve() below -- reset counters only after this
+        // one-time cost has already happened.
+        std::list<int, PoolAllocator<int, 8>> warm_up;
+        warm_up.push_back(0);
+    }
+
     reset_alloc_counters();
     {
         std::list<int, PoolAllocator<int, 8>> list;
@@ -83,8 +98,8 @@ TEST_CASE("OrderBook (pool-backed) causes zero heap allocations for steady-state
 
     // Warm-up: prime a small working set of resting orders. Startup cost,
     // not the hot path, so this is allowed to touch the heap (it won't,
-    // since order counts here are trivially under kOrderPoolCapacity, but
-    // that's not what's being asserted in this block).
+    // since order counts here are trivially under kShardOrderPoolCapacity,
+    // but that's not what's being asserted in this block).
     constexpr protocol::Quantity kQty = 10;
     for (protocol::OrderId id = 1; id <= 100; ++id) {
         protocol::Side side   = (id % 2 == 0) ? protocol::Side::Buy : protocol::Side::Sell;
@@ -177,46 +192,87 @@ TEST_CASE("NaiveOrderBook (std::allocator) causes real heap allocations for the 
     REQUIRE(delete_call_count() > 0);
 }
 
-TEST_CASE("Object pool capacity covers many concurrently-live symbol books, not just one",
+namespace {
+
+void fill_book_with_orders(OrderBook& book, protocol::OrderId& next_id, protocol::Quantity count) {
+    for (protocol::Quantity i = 0; i < count; ++i) {
+        protocol::Side side   = (i % 2 == 0) ? protocol::Side::Buy : protocol::Side::Sell;
+        protocol::Price price = 100 + static_cast<protocol::Price>(i % 1000);
+        auto result           = book.apply(protocol::AddOrder{
+                      .seq_num   = next_id,
+                      .order_id  = next_id,
+                      .symbol    = protocol::make_symbol("SYM"),
+                      .side      = side,
+                      .price     = price,
+                      .quantity  = 10,
+                      .timestamp = next_id,
+        });
+        REQUIRE(result.has_value());
+        ++next_id;
+    }
+}
+
+}  // namespace
+
+TEST_CASE("A single shard's pool capacity covers that shard's full expected symbol load",
           "[object_pool][sharding]") {
     // Phase 6 gives each DISTINCT SYMBOL its own OrderBook (see
-    // io/shard_demux.hpp), and the pool backing every OrderBook's
-    // containers is a single process-wide singleton shared across ALL of
-    // them (see object_pool.hpp). This simulates the worst case the
-    // capacity math in order_book.hpp is sized for: every one of
-    // kMaxSymbols books simultaneously holding kExpectedRestingOrdersPerSymbol
-    // resting orders -- exactly kOrderPoolCapacity orders system-wide. If
-    // the pool were still sized for one book's needs (as it was before
-    // Phase 6), this would start throwing std::bad_alloc partway through
-    // the second or third book, even though each individual book stays
-    // within its own expected size the whole time.
+    // io/shard_demux.hpp). Phase 7 gave each SHARD its own independent
+    // pool (see object_pool.hpp) rather than one pool shared across every
+    // shard -- so the capacity that matters is per shard, not system-wide.
+    // This simulates the worst case order_book.hpp's kShardOrderPoolCapacity
+    // is sized for: one shard hosting kExpectedSymbolsPerShard symbols,
+    // each holding kExpectedRestingOrdersPerSymbol resting orders --
+    // exactly at capacity. If it were still sized for the OLD system-wide
+    // total (kMaxSymbols books), this would be off by roughly kMaxShards/2x
+    // too generous per shard; sized too small, this test would throw
+    // std::bad_alloc partway through.
+    //
+    // No set_current_shard_index() call here: single-threaded tests all
+    // share pool slot 0 by default, which this test uses as "some shard."
     std::vector<std::unique_ptr<OrderBook>> books;
-    books.reserve(kMaxSymbols);
+    books.reserve(kExpectedSymbolsPerShard);
 
     protocol::OrderId next_id = 1;
-    for (std::size_t s = 0; s < kMaxSymbols; ++s) {
+    for (std::size_t s = 0; s < kExpectedSymbolsPerShard; ++s) {
         books.push_back(std::make_unique<OrderBook>());
-        OrderBook& book = *books.back();
-        for (std::size_t i = 0; i < kExpectedRestingOrdersPerSymbol; ++i) {
-            protocol::Side side   = (i % 2 == 0) ? protocol::Side::Buy : protocol::Side::Sell;
-            protocol::Price price = 100 + static_cast<protocol::Price>(i % 1000);
-            auto result           = book.apply(protocol::AddOrder{
-                          .seq_num   = next_id,
-                          .order_id  = next_id,
-                          .symbol    = protocol::make_symbol("SYM"),
-                          .side      = side,
-                          .price     = price,
-                          .quantity  = 10,
-                          .timestamp = next_id,
-            });
-            REQUIRE(result.has_value());
-            ++next_id;
-        }
+        fill_book_with_orders(*books.back(), next_id, static_cast<protocol::Quantity>(kExpectedRestingOrdersPerSymbol));
     }
 
     // Not just "didn't throw" -- spot-check a few books actually hold
-    // correct, live state under this full system-wide load.
+    // correct, live state under this full per-shard load.
     REQUIRE(books.front()->best_bid_ask().bid.has_value());
-    REQUIRE(books[kMaxSymbols / 2]->best_bid_ask().bid.has_value());
+    REQUIRE(books[kExpectedSymbolsPerShard / 2]->best_bid_ask().bid.has_value());
     REQUIRE(books.back()->best_bid_ask().bid.has_value());
+}
+
+TEST_CASE("Different shards' pools are genuinely independent instances, not shared capacity",
+          "[object_pool][sharding]") {
+    // Behavioral proof, not just inspecting a counter: fill TWO DIFFERENT
+    // shards' pools, each independently, to just under their own full
+    // per-shard capacity, AT THE SAME TIME (both sets of books alive
+    // simultaneously). If the two shards secretly drew from one shared
+    // pool sized for a single shard's capacity, this would exceed it and
+    // throw partway through the second shard -- exactly the Phase 7 bug
+    // this redesign fixes. Using shard indices 14/15 (rather than 0)
+    // specifically to avoid any dependence on ordering versus other tests
+    // in this file, which all implicitly use the default slot 0.
+    constexpr std::size_t kOrdersEach = kShardOrderPoolCapacity - 100;  // just under, headroom for map/hashmap nodes
+
+    set_current_shard_index(14);
+    OrderBook shard_a_book;
+    protocol::OrderId id_a = 1;
+    fill_book_with_orders(shard_a_book, id_a, static_cast<protocol::Quantity>(kOrdersEach));
+
+    set_current_shard_index(15);
+    OrderBook shard_b_book;
+    protocol::OrderId id_b = 10'000'000;  // distinct range, avoids any cross-shard order_id collision
+    fill_book_with_orders(shard_b_book, id_b, static_cast<protocol::Quantity>(kOrdersEach));
+
+    // Both books, still alive simultaneously, both genuinely populated --
+    // proof neither pool starved the other.
+    REQUIRE(shard_a_book.best_bid_ask().bid.has_value());
+    REQUIRE(shard_b_book.best_bid_ask().bid.has_value());
+
+    set_current_shard_index(0);  // restore the default for any tests that run after this one
 }

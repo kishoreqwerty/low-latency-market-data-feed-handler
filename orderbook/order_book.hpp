@@ -62,33 +62,44 @@ inline constexpr std::size_t kMaxShards = 16;
 // drives the pool capacity below.
 inline constexpr std::size_t kMaxSymbols = 500;
 
-// Per-symbol working-set estimate: used only to pre-reserve each
-// OrderBook's own order_index_ hash table so it doesn't rehash during
-// normal operation. NOT the pool's capacity -- see kOrderPoolCapacity.
+// Per-symbol working-set estimate: used both to pre-reserve each
+// OrderBook's own order_index_ hash table (so it doesn't rehash during
+// normal operation) and, below, to size each shard's pool.
 inline constexpr std::size_t kExpectedRestingOrdersPerSymbol = 2'000;
 
-// The pool backing OrderPoolAllocator (object_pool.hpp) is a PROCESS-WIDE
-// singleton keyed purely by node type: every OrderBook instance, across
-// every symbol and every shard, draws from the SAME underlying
-// FixedBlockPool for a given node type -- not a separate pool per instance
-// (see object_pool.hpp's "Known limitation" note, which this constant
-// resolves). That means capacity must cover the system-wide total resting
-// orders across ALL live symbols combined:
+// object_pool.hpp's PoolAllocator now gives each shard its OWN independent
+// pool per node type (see that file's header comment for the full
+// rationale: a single process-wide pool, even mutex-guarded, reintroduced
+// the exact cross-shard contention that sharding by symbol exists to
+// eliminate). So capacity here is sized per SHARD, not system-wide.
 //
-//     kOrderPoolCapacity = kMaxSymbols * kExpectedRestingOrdersPerSymbol
-//                        = 500 * 2,000 = 1,000,000
+// A shard's expected symbol count is derived from kMaxSymbols spread
+// evenly across kMaxShards, with headroom: real hashing isn't perfectly
+// uniform, so a 2x margin over the naive average comfortably covers the
+// skew you'd actually see (500 symbols over 16 shards has a per-shard
+// standard deviation of roughly 5-6, so 2x the mean is many standard
+// deviations of headroom, not a token buffer).
 //
-// Sizing this for just one book's expected load (100,000, as it was before
-// Phase 6 introduced multiple concurrently-live books) would silently
-// exhaust the pool the moment a second or third symbol's book got busy,
-// even though each individual book stayed well within its own expected
-// size. See orderbook/test_object_pool.cpp for a test that fills
-// kMaxSymbols books to exactly this capacity and confirms none of them
-// throw.
-inline constexpr std::size_t kOrderPoolCapacity = kMaxSymbols * kExpectedRestingOrdersPerSymbol;
+//     kExpectedSymbolsPerShard = (kMaxSymbols / kMaxShards) * 2
+//                              = (500 / 16) * 2 = 31 * 2 = 62
+//     kShardOrderPoolCapacity  = kExpectedSymbolsPerShard * kExpectedRestingOrdersPerSymbol
+//                              = 62 * 2,000 = 124,000
+//
+// Total memory footprint is now higher in aggregate than the old
+// system-wide single pool (up to kMaxShards independent pools instead of
+// one shared one) -- an accepted, deliberate tradeoff: static memory is
+// cheap, and a contention-free hot path is the entire point of this
+// architecture. Pools are still lazily constructed per shard actually
+// used (see object_pool.hpp), so a run with fewer than kMaxShards active
+// shards only pays for what it uses. See orderbook/test_object_pool.cpp
+// for a test that fills one shard's pool to exactly this capacity, and a
+// second test confirming two different shards' pools are genuinely
+// independent instances.
+inline constexpr std::size_t kExpectedSymbolsPerShard = (kMaxSymbols / kMaxShards) * 2;
+inline constexpr std::size_t kShardOrderPoolCapacity  = kExpectedSymbolsPerShard * kExpectedRestingOrdersPerSymbol;
 
 template <typename T>
-using OrderPoolAllocator = PoolAllocator<T, kOrderPoolCapacity>;
+using OrderPoolAllocator = PoolAllocator<T, kShardOrderPoolCapacity>;
 
 // Single-symbol, single-threaded limit order book reconstructed from a feed
 // of Add/Cancel/Execute/Replace messages (not a matching engine -- the
