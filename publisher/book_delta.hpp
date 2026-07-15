@@ -18,6 +18,7 @@
 
 #include <cstddef>
 
+#include "concurrency/latency_trace.hpp"
 #include "concurrency/spsc_ring_buffer.hpp"
 #include "protocol/message_types.hpp"
 
@@ -36,6 +37,13 @@ struct BookDelta {
     protocol::Quantity total_quantity = 0;
     protocol::SeqNum seq_num          = 0;  // the shard-sequence input message that caused this delta
     protocol::Timestamp timestamp     = 0;
+
+    // Phase 10: carried forward from the QueuedMessage that produced this
+    // delta (io/shard_demux.cpp's process_shard() copies it in, adding
+    // t_dequeued/t_book_updated) -- see concurrency/latency_trace.hpp and
+    // publisher::LatencyRecordingSink, which is what actually turns this
+    // into reported percentiles.
+    concurrency::LatencyTrace trace{};
 };
 
 // Depth of each shard's OUTPUT queue -- a second, independent SPSC ring

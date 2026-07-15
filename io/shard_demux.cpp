@@ -67,14 +67,16 @@ std::size_t ShardedPipeline::routing_table_size() const {
     return order_route_.size();
 }
 
-std::expected<std::size_t, DemuxError> ShardedPipeline::demux(std::span<const std::byte> raw) {
+std::expected<std::size_t, DemuxError> ShardedPipeline::demux(std::span<const std::byte> raw,
+                                                                concurrency::LatencyClock::time_point t_received) {
     auto decoded = protocol::decode(raw);
+    const auto t_decoded = concurrency::LatencyClock::now();
     if (!decoded) {
         return std::unexpected(DemuxError::DecodeFailed);
     }
 
     return std::visit(
-        [this](auto&& msg) -> std::expected<std::size_t, DemuxError> {
+        [this, t_received, t_decoded](auto&& msg) -> std::expected<std::size_t, DemuxError> {
             using Msg = std::decay_t<decltype(msg)>;
 
             std::size_t shard_index;
@@ -114,7 +116,12 @@ std::expected<std::size_t, DemuxError> ShardedPipeline::demux(std::span<const st
                 }
             }
 
-            shards_[shard_index]->queue.push(QueuedMessage{symbol, protocol::DecodedMessage{msg}});
+            concurrency::LatencyTrace trace;
+            trace.t_received = t_received;
+            trace.t_decoded  = t_decoded;
+            trace.t_demuxed  = concurrency::LatencyClock::now();  // captured immediately before push()
+
+            shards_[shard_index]->queue.push(QueuedMessage{symbol, protocol::DecodedMessage{msg}, trace});
             return shard_index;
         },
         *decoded);
@@ -126,12 +133,18 @@ bool ShardedPipeline::process_shard(std::size_t shard_index) {
     QueuedMessage qm;
     while (s.queue.try_pop(qm)) {
         did_work = true;
+        // qm is this thread's own local copy (SpscRingBuffer::try_pop
+        // copies out of the slot) -- safe to mutate its trace field
+        // in-place before it's used to build a BookDelta below.
+        qm.trace.t_dequeued = concurrency::LatencyClock::now();
+
         s.gap_detector.observe(std::visit([](auto&& m) { return m.seq_num; }, qm.message));
 
         orderbook::OrderBook& book = s.books[qm.symbol];
         std::visit(
             [&](auto&& m) {
-                auto result = book.apply(m);
+                auto result                 = book.apply(m);
+                qm.trace.t_book_updated = concurrency::LatencyClock::now();
 
                 // Cancel and Replace's old_order_id are already removed
                 // from order_route_ at demux() time, since those wire
@@ -164,6 +177,7 @@ bool ShardedPipeline::process_shard(std::size_t shard_index) {
                             .total_quantity = level.total_quantity,
                             .seq_num        = m.seq_num,
                             .timestamp      = m.timestamp,
+                            .trace          = qm.trace,
                         });
                     }
                 }

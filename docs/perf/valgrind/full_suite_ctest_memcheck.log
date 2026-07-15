@@ -1,0 +1,498 @@
+   Site: 1c5495d7abd0
+   Build name: Linux-g++
+Create new tag: 20260715-1623 - Experimental
+Memory check project /workspace/build/valgrind
+      Start  1: AddOrder round-trips through encode/decode
+ 1/66 MemCheck  #1: AddOrder round-trips through encode/decode ............................................................................................................................   Passed    0.58 sec
+      Start  2: CancelOrder round-trips through encode/decode
+ 2/66 MemCheck  #2: CancelOrder round-trips through encode/decode .........................................................................................................................   Passed    0.54 sec
+      Start  3: ExecuteOrder round-trips through encode/decode
+ 3/66 MemCheck  #3: ExecuteOrder round-trips through encode/decode ........................................................................................................................   Passed    0.55 sec
+      Start  4: ReplaceOrder round-trips through encode/decode
+ 4/66 MemCheck  #4: ReplaceOrder round-trips through encode/decode ........................................................................................................................   Passed    0.55 sec
+      Start  5: encode reports BufferTooSmall instead of overflowing the caller's buffer
+ 5/66 MemCheck  #5: encode reports BufferTooSmall instead of overflowing the caller's buffer ..............................................................................................   Passed    0.54 sec
+      Start  6: decode rejects a message truncated mid-payload
+ 6/66 MemCheck  #6: decode rejects a message truncated mid-payload ........................................................................................................................   Passed    0.54 sec
+      Start  7: decode rejects a message shorter than the header itself
+ 7/66 MemCheck  #7: decode rejects a message shorter than the header itself ...............................................................................................................   Passed    0.55 sec
+      Start  8: decode rejects an invalid message type byte
+ 8/66 MemCheck  #8: decode rejects an invalid message type byte ...........................................................................................................................   Passed    0.54 sec
+      Start  9: decode rejects a length field inconsistent with its message type
+ 9/66 MemCheck  #9: decode rejects a length field inconsistent with its message type ......................................................................................................   Passed    0.55 sec
+      Start 10: OrderBook reconstructs price-time priority through a scripted sequence
+10/66 MemCheck #10: OrderBook reconstructs price-time priority through a scripted sequence ................................................................................................   Passed    0.67 sec
+      Start 11: OrderBook rejects cancelling a non-existent order and leaves state unchanged
+11/66 MemCheck #11: OrderBook rejects cancelling a non-existent order and leaves state unchanged ..........................................................................................   Passed    0.64 sec
+      Start 12: OrderBook rejects executing more quantity than remains and leaves the order unchanged
+12/66 MemCheck #12: OrderBook rejects executing more quantity than remains and leaves the order unchanged .................................................................................   Passed    0.64 sec
+      Start 13: OrderBook rejects an AddOrder that reuses a resting order_id
+13/66 MemCheck #13: OrderBook rejects an AddOrder that reuses a resting order_id ..........................................................................................................   Passed    0.64 sec
+      Start 14: OrderBook rejects a ReplaceOrder referencing an unknown old_order_id
+14/66 MemCheck #14: OrderBook rejects a ReplaceOrder referencing an unknown old_order_id ..................................................................................................   Passed    0.56 sec
+      Start 15: OrderBook rejects a ReplaceOrder that introduces a duplicate new_order_id
+15/66 MemCheck #15: OrderBook rejects a ReplaceOrder that introduces a duplicate new_order_id .............................................................................................   Passed    0.64 sec
+      Start 16: FixedBlockPool hands out distinct blocks up to capacity, then throws
+16/66 MemCheck #16: FixedBlockPool hands out distinct blocks up to capacity, then throws ..................................................................................................   Passed    0.57 sec
+      Start 17: FixedBlockPool reuses a block after it's freed
+17/66 MemCheck #17: FixedBlockPool reuses a block after it's freed ........................................................................................................................   Passed    0.55 sec
+      Start 18: PoolAllocator backs a std::list with zero heap allocations
+18/66 MemCheck #18: PoolAllocator backs a std::list with zero heap allocations ............................................................................................................   Passed    0.56 sec
+      Start 19: OrderBook (pool-backed) causes zero heap allocations for steady-state message traffic
+19/66 MemCheck #19: OrderBook (pool-backed) causes zero heap allocations for steady-state message traffic .................................................................................   Passed    0.65 sec
+      Start 20: NaiveOrderBook (std::allocator) causes real heap allocations for the same traffic
+20/66 MemCheck #20: NaiveOrderBook (std::allocator) causes real heap allocations for the same traffic .....................................................................................***Failed    0.62 sec
+Filters: "NaiveOrderBook (std::allocator) causes real heap allocations for the same traffic"
+Randomness seeded to: 2498944326
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+mdfh_orderbook_test is a Catch2 v3.7.1 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+NaiveOrderBook (std::allocator) causes real heap allocations for the same
+traffic
+-------------------------------------------------------------------------------
+/workspace/orderbook/test_object_pool.cpp:147
+...............................................................................
+
+/workspace/orderbook/test_object_pool.cpp:191: FAILED:
+  REQUIRE( new_call_count() > 0 )
+with expansion:
+  0 > 0
+
+===============================================================================
+test cases:   1 |   0 passed | 1 failed
+assertions: 301 | 300 passed | 1 failed
+
+
+      Start 21: A single shard's pool capacity covers that shard's full expected symbol load
+21/66 MemCheck #21: A single shard's pool capacity covers that shard's full expected symbol load ..........................................................................................   Passed    3.60 sec
+      Start 22: Different shards' pools are genuinely independent instances, not shared capacity
+22/66 MemCheck #22: Different shards' pools are genuinely independent instances, not shared capacity ......................................................................................   Passed    5.74 sec
+      Start 23: Per-shard pools need no synchronization: many threads hammering their own shard's pool concurrently
+23/66 MemCheck #23: Per-shard pools need no synchronization: many threads hammering their own shard's pool concurrently ...................................................................   Passed    6.27 sec
+      Start 24: GapDetector treats the first observed seq_num as in-order
+24/66 MemCheck #24: GapDetector treats the first observed seq_num as in-order .............................................................................................................   Passed    0.55 sec
+      Start 25: GapDetector stays LIVE through a contiguous sequence
+25/66 MemCheck #25: GapDetector stays LIVE through a contiguous sequence ..................................................................................................................   Passed    0.55 sec
+      Start 26: GapDetector flags a gap, marks STALE, and a resync clears it back to LIVE
+26/66 MemCheck #26: GapDetector flags a gap, marks STALE, and a resync clears it back to LIVE .............................................................................................   Passed    0.56 sec
+      Start 27: GapDetector counts multiple distinct gaps
+27/66 MemCheck #27: GapDetector counts multiple distinct gaps .............................................................................................................................   Passed    0.55 sec
+      Start 28: GapDetector registers a large gap the same way as a single missing message
+28/66 MemCheck #28: GapDetector registers a large gap the same way as a single missing message ............................................................................................   Passed    0.55 sec
+      Start 29: GapDetector reports duplicate/out-of-order-behind seq_nums without flagging a gap
+29/66 MemCheck #29: GapDetector reports duplicate/out-of-order-behind seq_nums without flagging a gap .....................................................................................   Passed    0.55 sec
+      Start 30: SpscRingBuffer pop on an empty buffer returns false
+30/66 MemCheck #30: SpscRingBuffer pop on an empty buffer returns false ...................................................................................................................   Passed    0.55 sec
+      Start 31: SpscRingBuffer preserves FIFO order for a simple push/pop sequence
+31/66 MemCheck #31: SpscRingBuffer preserves FIFO order for a simple push/pop sequence ....................................................................................................   Passed    0.55 sec
+      Start 32: SpscRingBuffer fills exactly to capacity without dropping anything
+32/66 MemCheck #32: SpscRingBuffer fills exactly to capacity without dropping anything ....................................................................................................   Passed    0.55 sec
+      Start 33: SpscRingBuffer drops exactly the oldest entry on a single-item overflow
+33/66 MemCheck #33: SpscRingBuffer drops exactly the oldest entry on a single-item overflow ...............................................................................................   Passed    0.55 sec
+      Start 34: SpscRingBuffer wraps around correctly across many cycles
+34/66 MemCheck #34: SpscRingBuffer wraps around correctly across many cycles ..............................................................................................................   Passed    0.55 sec
+      Start 35: SpscRingBuffer drop-oldest keeps only the newest Capacity items after a large overflow
+35/66 MemCheck #35: SpscRingBuffer drop-oldest keeps only the newest Capacity items after a large overflow ................................................................................   Passed    0.55 sec
+      Start 36: SpscRingBuffer handles repeated fill-drain cycles interleaved with overflow
+36/66 MemCheck #36: SpscRingBuffer handles repeated fill-drain cycles interleaved with overflow ...........................................................................................   Passed    0.55 sec
+      Start 37: SpscRingBuffer: sustained overwhelmed producer under real concurrency
+37/66 MemCheck #37: SpscRingBuffer: sustained overwhelmed producer under real concurrency .................................................................................................   Passed    8.00 sec
+      Start 38: SpscRingBuffer: artificially slowed consumer forces the eviction-collision spin-wait
+38/66 MemCheck #38: SpscRingBuffer: artificially slowed consumer forces the eviction-collision spin-wait ..................................................................................   Passed    0.63 sec
+      Start 39: set_thread_affinity_tag completes without crashing or hanging on a live thread
+39/66 MemCheck #39: set_thread_affinity_tag completes without crashing or hanging on a live thread ........................................................................................   Passed    0.59 sec
+      Start 40: Multiple threads can each be tagged, with distinct tags, without error
+40/66 MemCheck #40: Multiple threads can each be tagged, with distinct tags, without error ................................................................................................   Passed    0.67 sec
+      Start 41: format_delta_line renders a live level with its quantity
+41/66 MemCheck #41: format_delta_line renders a live level with its quantity ..............................................................................................................   Passed    0.55 sec
+      Start 42: format_delta_line renders a removed level distinctly from a zero quantity looking like data
+42/66 MemCheck #42: format_delta_line renders a removed level distinctly from a zero quantity looking like data ...........................................................................   Passed    0.54 sec
+      Start 43: NullDeltaSink discards without crashing
+43/66 MemCheck #43: NullDeltaSink discards without crashing ...............................................................................................................................   Passed    0.55 sec
+      Start 44: drain_publisher_queue pops everything currently queued, in order, and reports whether it did work
+44/66 MemCheck #44: drain_publisher_queue pops everything currently queued, in order, and reports whether it did work .....................................................................   Passed    0.55 sec
+      Start 45: FileDeltaSink writes one formatted line per delta to disk
+45/66 MemCheck #45: FileDeltaSink writes one formatted line per delta to disk .............................................................................................................   Passed    0.56 sec
+      Start 46: shard_for_symbol is deterministic and stays within bounds
+46/66 MemCheck #46: shard_for_symbol is deterministic and stays within bounds .............................................................................................................   Passed    0.56 sec
+      Start 47: ShardedPipeline rejects an unroutable order_id instead of guessing a shard
+47/66 MemCheck #47: ShardedPipeline rejects an unroutable order_id instead of guessing a shard ............................................................................................   Passed    0.58 sec
+      Start 48: Mixed-symbol stream: each symbol's book ends up correct and isolated from every other symbol
+48/66 MemCheck #48: Mixed-symbol stream: each symbol's book ends up correct and isolated from every other symbol ..........................................................................   Passed    0.73 sec
+      Start 49: ShardedPipeline's order routing table stays bounded over a long add/cancel/execute run
+49/66 MemCheck #49: ShardedPipeline's order routing table stays bounded over a long add/cancel/execute run ................................................................................   Passed    1.03 sec
+      Start 50: FeedGenerator with zero packet loss produces exactly message_count valid, decodable messages
+50/66 MemCheck #50: FeedGenerator with zero packet loss produces exactly message_count valid, decodable messages ..........................................................................   Passed    0.81 sec
+      Start 51: FeedGenerator is exhausted after message_count and stays exhausted
+51/66 MemCheck #51: FeedGenerator is exhausted after message_count and stays exhausted ....................................................................................................   Passed    0.59 sec
+      Start 52: FeedGenerator's packet loss rate roughly matches configuration over a large run
+52/66 MemCheck #52: FeedGenerator's packet loss rate roughly matches configuration over a large run .......................................................................................   Passed    1.95 sec
+      Start 53: FeedGenerator is deterministic for a fixed seed
+53/66 MemCheck #53: FeedGenerator is deterministic for a fixed seed .......................................................................................................................   Passed    0.63 sec
+      Start 54: FeedGenerator assigns per-shard sequence numbers that are exactly contiguous absent loss
+54/66 MemCheck #54: FeedGenerator assigns per-shard sequence numbers that are exactly contiguous absent loss ..............................................................................   Passed    0.74 sec
+      Start 55: Reactor drives a coroutine through every suspend/resume cycle to completion
+55/66 MemCheck #55: Reactor drives a coroutine through every suspend/resume cycle to completion ...........................................................................................   Passed    0.57 sec
+      Start 56: Reactor correctly interleaves and completes multiple independent coroutines
+56/66 MemCheck #56: Reactor correctly interleaves and completes multiple independent coroutines ...........................................................................................   Passed    0.57 sec
+      Start 57: Requesting stop mid-flight lets a suspended coroutine finish cleanly instead of leaking
+57/66 MemCheck #57: Requesting stop mid-flight lets a suspended coroutine finish cleanly instead of leaking ...............................................................................   Passed    0.57 sec
+      Start 58: Stop requested before a coroutine even starts still lets it complete without leaking
+58/66 MemCheck #58: Stop requested before a coroutine even starts still lets it complete without leaking ..................................................................................   Passed    0.57 sec
+      Start 59: Full pipeline end-to-end: real concurrent threads, live packet loss, gap detection observed while other shards are actively processing
+59/66 MemCheck #59: Full pipeline end-to-end: real concurrent threads, live packet loss, gap detection observed while other shards are actively processing ................................***Failed   44.40 sec
+Filters: "Full pipeline end-to-end: real concurrent threads\, live packet loss\, gap detection observed while other shards are actively processing"
+Randomness seeded to: 426212662
+[gap_detector] sequence gap: expected 14036, got 14037 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 14262, got 14263 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 14264, got 51476 (37212 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 51477, got 58077 (6600 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58105, got 58106 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58131, got 58132 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58206, got 58207 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58239, got 58240 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58400, got 58401 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58411, got 58412 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58464, got 58465 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 42661, got 42662 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 42663, got 58226 (15563 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 67934, got 67935 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 67936, got 245642 (177706 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 245643, got 245644 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 245722, got 245723 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 245770, got 245771 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 245847, got 245848 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 245995, got 245996 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 246012, got 246013 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 246018, got 246019 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 246037, got 246038 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 246064, got 246065 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 246122, got 246123 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 246237, got 246238 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 246270, got 246272 (2 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 246317, got 246318 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 246592, got 246593 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 246618, got 246619 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 246769, got 246770 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 246773, got 246774 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58263, got 58264 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58266, got 58267 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58420, got 58421 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58438, got 58439 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58516, got 58517 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58622, got 58623 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58642, got 58643 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58693, got 58694 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58714, got 58715 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58559, got 58560 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58598, got 58599 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58602, got 58603 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58613, got 58614 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58700, got 58701 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58710, got 58711 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58747, got 58748 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58866, got 58867 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58919, got 58920 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58972, got 58973 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58983, got 58984 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59062, got 59063 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59066, got 59067 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59136, got 59137 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59190, got 59191 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 246843, got 246844 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 246856, got 246857 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 246878, got 246879 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58810, got 58811 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59287, got 59288 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59289, got 59290 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59374, got 59375 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59411, got 59412 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59444, got 59445 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59456, got 59457 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59460, got 59461 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59569, got 59570 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59592, got 59593 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59725, got 59726 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59781, got 59782 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59826, got 59827 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59839, got 59840 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59957, got 59958 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59987, got 59988 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60002, got 60003 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60073, got 60074 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60085, got 60086 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60112, got 60113 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60153, got 60154 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60159, got 60160 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60175, got 60176 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60189, got 60190 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60203, got 60204 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60320, got 60321 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60359, got 60360 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60416, got 60417 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60542, got 60543 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60588, got 60589 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60605, got 60606 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60657, got 60658 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60687, got 60688 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60742, got 60743 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 100998, got 100999 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 101000, got 121383 (20383 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 121398, got 121399 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 121439, got 121440 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 246967, got 246968 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 246986, got 246987 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 247075, got 247076 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 247221, got 247222 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 247269, got 247270 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 247413, got 247414 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 121481, got 121482 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 121495, got 121496 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 121692, got 121693 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 121707, got 121708 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58847, got 58848 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58849, got 58850 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58964, got 58965 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58975, got 58976 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60846, got 60847 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60855, got 60856 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60860, got 60861 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60869, got 60870 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60878, got 60879 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 121710, got 121711 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 121752, got 121753 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 121810, got 121811 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 121878, got 121879 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 121934, got 121935 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 121981, got 121982 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 122005, got 122006 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 122024, got 122025 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 122049, got 122050 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 122176, got 122177 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 122200, got 122201 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 122204, got 122205 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 122436, got 122437 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 122466, got 122467 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 58997, got 58998 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59090, got 59091 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59105, got 59106 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59197, got 59198 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59204, got 59205 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60888, got 60889 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61120, got 61121 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61201, got 61202 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61347, got 61348 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61499, got 61500 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61503, got 61504 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61669, got 61670 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61677, got 61678 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61717, got 61718 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61760, got 61761 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61852, got 61853 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61882, got 61883 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 62074, got 62075 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 62102, got 62103 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 62201, got 62202 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 62278, got 62279 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 62302, got 62303 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 62338, got 62339 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 62376, got 62377 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59357, got 59358 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59359, got 59360 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59443, got 59444 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59468, got 59469 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59618, got 59619 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59633, got 59634 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59689, got 59690 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59729, got 59730 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59764, got 59765 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59844, got 59845 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59870, got 59871 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 59920, got 59921 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60014, got 60015 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60048, got 60049 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60108, got 60109 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60115, got 60116 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60215, got 60216 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60233, got 60234 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60333, got 60334 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60338, got 60339 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60410, got 60411 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60420, got 60421 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60428, got 60429 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60447, got 60448 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60474, got 60475 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60479, got 60480 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60512, got 60513 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60587, got 60588 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60600, got 60601 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60659, got 60660 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60679, got 60680 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60750, got 60751 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60759, got 60760 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60785, got 60786 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60818, got 60819 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60845, got 60846 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60849, got 60850 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 60944, got 60945 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61072, got 61073 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61090, got 61091 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61114, got 61115 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61318, got 61319 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61346, got 61347 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61501, got 61502 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61548, got 61549 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61569, got 61570 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61635, got 61636 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61645, got 61646 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61649, got 61650 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61710, got 61711 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61750, got 61751 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 247521, got 247522 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 247523, got 247524 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 247579, got 247580 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 247669, got 247670 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 247803, got 247804 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 247818, got 247819 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61787, got 61788 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61804, got 61805 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61885, got 61886 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61910, got 61911 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61945, got 61946 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61952, got 61953 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61958, got 61959 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 61982, got 61983 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 62007, got 62008 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 62067, got 62068 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 247913, got 247914 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 248042, got 248043 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 248247, got 248248 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 248285, got 248286 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 248339, got 248340 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 248427, got 248428 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 248457, got 248458 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 248496, got 248497 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 248509, got 248510 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 248525, got 248526 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 248554, got 248555 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 248673, got 248674 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 248716, got 248717 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 248752, got 248753 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 248787, got 248788 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 248821, got 248822 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 248831, got 248832 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 248916, got 248917 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 248941, got 248942 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 249091, got 249092 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 249098, got 249099 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 249157, got 249158 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 249295, got 249296 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 249337, got 249338 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 249354, got 249355 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 249442, got 249443 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 249488, got 249489 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 249491, got 249492 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 249564, got 249565 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 249581, got 249582 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 249608, got 249609 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 249629, got 249630 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 249708, got 249709 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 249797, got 249798 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 122481, got 122482 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 122604, got 122605 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 122681, got 122682 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 122725, got 122726 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 122913, got 122914 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 122937, got 122938 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 122945, got 122946 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123026, got 123027 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123055, got 123056 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123064, got 123065 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123127, got 123128 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123202, got 123203 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123514, got 123515 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123521, got 123522 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123534, got 123535 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123615, got 123616 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123617, got 123618 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123683, got 123684 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123718, got 123719 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123778, got 123779 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123799, got 123800 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123828, got 123829 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123835, got 123836 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123923, got 123924 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123931, got 123932 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 123945, got 123946 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 124045, got 124046 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 124204, got 124205 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 124287, got 124288 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 124318, got 124319 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 124335, got 124336 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 124338, got 124339 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 124476, got 124477 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 124595, got 124596 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 124608, got 124609 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 124783, got 124784 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 124802, got 124803 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 124858, got 124859 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 124893, got 124894 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 124932, got 124933 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 125100, got 125101 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 125102, got 125103 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 125190, got 125191 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 125281, got 125282 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 125384, got 125385 (1 message(s) missing) -- marking STALE
+[gap_detector] sequence gap: expected 125456, got 125457 (1 message(s) missing) -- marking STALE
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+mdfh_pipeline_e2e_test is a Catch2 v3.7.1 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+Full pipeline end-to-end: real concurrent threads, live packet loss, gap
+detection observed while other shards are actively processing
+-------------------------------------------------------------------------------
+/workspace/io/test_pipeline_e2e.cpp:37
+...............................................................................
+
+/workspace/io/test_pipeline_e2e.cpp:95: FAILED:
+  REQUIRE( observed_live_stale )
+with expansion:
+  false
+
+===============================================================================
+test cases: 1 | 1 failed
+assertions: 1 | 1 failed
+
+
+      Start 60: Stopping the pipeline mid-flight joins promptly without hanging
+60/66 MemCheck #60: Stopping the pipeline mid-flight joins promptly without hanging .......................................................................................................   Passed    5.03 sec
+      Start 61: A PipelineRunner destroyed without an explicit stop() still shuts down cleanly
+61/66 MemCheck #61: A PipelineRunner destroyed without an explicit stop() still shuts down cleanly ........................................................................................   Passed    1.87 sec
+      Start 62: Repeated PipelineRunner construct/run/destroy cycles in one process don't leak pool capacity
+62/66 MemCheck #62: Repeated PipelineRunner construct/run/destroy cycles in one process don't leak pool capacity ..........................................................................   Passed  155.17 sec
+      Start 63: Publisher output: replaying a shard's recorded book deltas in order reconstructs the exact same price-level state as the live book -- Phase 9's Done-when criterion
+63/66 MemCheck #63: Publisher output: replaying a shard's recorded book deltas in order reconstructs the exact same price-level state as the live book -- Phase 9's Done-when criterion ...   Passed    3.15 sec
+      Start 64: FileDeltaSink downstream stub: a full pipeline run produces a non-empty, human-readable delta log per shard
+64/66 MemCheck #64: FileDeltaSink downstream stub: a full pipeline run produces a non-empty, human-readable delta log per shard ...........................................................   Passed    1.94 sec
+      Start 65: Publisher shutdown handshake loses no deltas when stop() lands mid-flight, with the publisher thread deliberately lagging behind its decoder
+65/66 MemCheck #65: Publisher shutdown handshake loses no deltas when stop() lands mid-flight, with the publisher thread deliberately lagging behind its decoder ..........................   Passed   42.56 sec
+      Start 66: Phase 0 scaffolding builds and runs
+66/66 MemCheck #66: Phase 0 scaffolding builds and runs ...................................................................................................................................   Passed    0.61 sec
+
+97% tests passed, 2 tests failed out of 66
+
+Total Test time (real) = 311.67 sec
+
+The following tests FAILED:
+	 20 - NaiveOrderBook (std::allocator) causes real heap allocations for the same traffic (Failed)
+	 59 - Full pipeline end-to-end: real concurrent threads, live packet loss, gap detection observed while other shards are actively processing (Failed)
+-- Processing memory checking output:
+MemCheck log files can be found here: (<#> corresponds to test number)
+/workspace/build/valgrind/Testing/Temporary/MemoryChecker.<#>.log
+Memory checking results:
+Errors while running CTest

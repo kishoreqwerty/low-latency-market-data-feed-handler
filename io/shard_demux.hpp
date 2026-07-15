@@ -38,6 +38,7 @@
 #include <vector>
 
 #include "concurrency/gap_detector.hpp"
+#include "concurrency/latency_trace.hpp"
 #include "concurrency/spsc_ring_buffer.hpp"
 #include "orderbook/order_book.hpp"
 #include "protocol/decoder.hpp"
@@ -64,6 +65,13 @@ inline constexpr std::size_t kShardQueueCapacity = 4096;
 struct QueuedMessage {
     protocol::Symbol symbol;
     protocol::DecodedMessage message;
+
+    // Phase 10: t_received/t_decoded/t_demuxed are filled in by demux()
+    // before this is pushed; process_shard() fills in t_dequeued (right
+    // after popping its own local copy) and t_book_updated (right after
+    // apply() returns) before forwarding the trace into a BookDelta -- see
+    // concurrency/latency_trace.hpp for the full stage-boundary rationale.
+    concurrency::LatencyTrace trace;
 };
 
 // One shard's full pipeline. Multiple symbols can and do land on the same
@@ -107,7 +115,18 @@ public:
     // the order_id routing table recorded by an earlier AddOrder for
     // Cancel/Execute/Replace), and enqueues it onto that shard's ring
     // buffer. Returns the shard index on success.
-    std::expected<std::size_t, DemuxError> demux(std::span<const std::byte> raw);
+    //
+    // `t_received` is the network-I/O stage's own timestamp -- captured by
+    // the CALLER (io/async_network_reader.cpp for the real pipeline)
+    // immediately after the raw bytes became available, not defaulted to
+    // "whenever demux() itself started running": in this project's
+    // simulated feed, the reader and demux() run back-to-back on the same
+    // thread with no intermediate queue, so those two moments are already
+    // nearly identical -- letting demux() silently capture its own "now"
+    // would hide that near-zero interval behind an unmeasured default
+    // instead of actually confirming it. See concurrency/latency_trace.hpp.
+    std::expected<std::size_t, DemuxError> demux(std::span<const std::byte> raw,
+                                                  concurrency::LatencyClock::time_point t_received);
 
     // Drains everything currently queued for ONE shard, feeding each
     // message through that shard's gap detector and the correct symbol's

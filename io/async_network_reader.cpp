@@ -2,6 +2,8 @@
 
 #include <chrono>
 
+#include "concurrency/latency_trace.hpp"
+
 namespace mdfh::io {
 
 Task read_packets_async(FeedGenerator& feed, ShardedPipeline& pipeline, Reactor& reactor,
@@ -19,7 +21,14 @@ Task read_packets_async(FeedGenerator& feed, ShardedPipeline& pipeline, Reactor&
             break;
         }
         if (packet.bytes.has_value()) {
-            (void)pipeline.demux(*packet.bytes);
+            // Network-I/O stage timestamp: captured immediately, right as
+            // the bytes become available -- see ShardedPipeline::demux()'s
+            // comment for why this is passed in rather than let demux()
+            // capture its own "now" (they'd be nearly identical here, but
+            // silently defaulting would mean never actually confirming
+            // that instead of measuring it).
+            const auto t_received = concurrency::LatencyClock::now();
+            (void)pipeline.demux(*packet.bytes, t_received);
         }
         // If bytes is nullopt, the packet was lost in transit -- simulating
         // that, correctly, means NOT delivering it anywhere, not retrying.

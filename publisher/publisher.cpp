@@ -55,4 +55,33 @@ bool drain_publisher_queue(DeltaQueue& queue, DeltaSink& sink) {
     return did_work;
 }
 
+LatencyRecordingSink::LatencyRecordingSink(std::unique_ptr<DeltaSink> inner) : inner_(std::move(inner)) {}
+
+void LatencyRecordingSink::publish(const BookDelta& delta) {
+    // t_delta_dequeued: approximated as "right now" -- this method is
+    // called immediately after drain_publisher_queue() pops the delta off
+    // Shard::output_queue (see publisher.hpp's drain_publisher_queue()
+    // above), so the gap between the real pop and this line is a few
+    // instructions, not a queue wait. Captured BEFORE calling inner_ so
+    // the inner sink's own I/O cost (e.g. FileDeltaSink's file write)
+    // doesn't get folded into output_queue_wait.
+    const auto t_delta_dequeued = concurrency::LatencyClock::now();
+
+    inner_->publish(delta);
+
+    const auto t_published = concurrency::LatencyClock::now();
+
+    const concurrency::LatencyTrace& trace = delta.trace;
+    samples_.push_back(LatencySample{
+        .receive_to_decode   = trace.t_decoded - trace.t_received,
+        .decode_to_demux     = trace.t_demuxed - trace.t_decoded,
+        .input_queue_wait    = trace.t_dequeued - trace.t_demuxed,
+        .book_update         = trace.t_book_updated - trace.t_dequeued,
+        .output_queue_wait   = t_delta_dequeued - trace.t_book_updated,
+        .publish             = t_published - t_delta_dequeued,
+        .tick_to_book_update = trace.t_book_updated - trace.t_received,
+        .end_to_end          = t_published - trace.t_received,
+    });
+}
+
 }  // namespace mdfh::publisher

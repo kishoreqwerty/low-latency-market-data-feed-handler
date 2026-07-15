@@ -18,8 +18,11 @@
 //     the exact same drain-until-empty + upstream-done handshake pattern
 //     already proven correct for decoder threads.
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <memory>
+#include <vector>
 
 #include "publisher/book_delta.hpp"
 
@@ -73,5 +76,55 @@ std::string format_delta_line(const BookDelta& delta);
 // thread concurrently is not safe (SpscRingBuffer::try_pop requires a
 // single consumer).
 bool drain_publisher_queue(DeltaQueue& queue, DeltaSink& sink);
+
+// Phase 10: one delta's full stage-boundary breakdown, in nanoseconds.
+// Field names spell out exactly which two LatencyTrace timestamps (plus
+// this sink's own t_delta_dequeued/t_published) each one spans, rather
+// than trying to force each interval into a single stage label -- e.g.
+// receive_to_decode necessarily covers BOTH "however long between bytes
+// being ready and decode() actually being invoked" (~0, same function
+// call in this pipeline) AND decode()'s own running time, since
+// t_received and t_decoded bracket both at once.
+struct LatencySample {
+    std::chrono::nanoseconds receive_to_decode;    // t_decoded - t_received (network I/O readiness -> decode done)
+    std::chrono::nanoseconds decode_to_demux;      // t_demuxed - t_decoded (routing + enqueue cost)
+    std::chrono::nanoseconds input_queue_wait;     // t_dequeued - t_demuxed (queued before the decoder got to it)
+    std::chrono::nanoseconds book_update;          // t_book_updated - t_dequeued (apply() cost itself)
+    std::chrono::nanoseconds output_queue_wait;    // t_delta_dequeued - t_book_updated
+    std::chrono::nanoseconds publish;              // t_published - t_delta_dequeued (downstream I/O cost)
+
+    std::chrono::nanoseconds tick_to_book_update;  // t_book_updated - t_received -- THE primary metric
+    std::chrono::nanoseconds end_to_end;           // t_published - t_received
+};
+
+// Decorator: forwards every delta to `inner` (defaults to a NullDeltaSink,
+// so a pure latency-measurement run doesn't need a real downstream target)
+// and additionally records a LatencySample built from the delta's
+// LatencyTrace plus two more timestamps captured right here -- the
+// t_delta_dequeued/t_published boundaries the trace itself doesn't carry
+// (see concurrency/latency_trace.hpp's header comment for why those two
+// live here instead of being threaded further).
+//
+// One instance per shard (see io/pipeline_runner.cpp / bench/latency_bench.cpp),
+// same as FileDeltaSink -- samples_ is only ever appended to by that one
+// shard's publisher thread, so no synchronization is needed. Deliberately
+// NOT capacity-bounded like the production hot-path containers
+// (object_pool.hpp et al.): this is an opt-in measurement tool, not part
+// of the default pipeline, so letting `samples_` grow (reallocating like
+// any normal std::vector if it must) is an accepted, scoped exception to
+// the zero-allocation rule -- see latency_trace.hpp's header comment for
+// the same reasoning applied to why timestamps are captured at all.
+class LatencyRecordingSink : public DeltaSink {
+public:
+    explicit LatencyRecordingSink(std::unique_ptr<DeltaSink> inner = std::make_unique<NullDeltaSink>());
+
+    void publish(const BookDelta& delta) override;
+
+    const std::vector<LatencySample>& samples() const noexcept { return samples_; }
+
+private:
+    std::unique_ptr<DeltaSink> inner_;
+    std::vector<LatencySample> samples_;
+};
 
 }  // namespace mdfh::publisher

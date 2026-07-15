@@ -10,8 +10,9 @@
 #include "protocol/message_types.hpp"
 
 using namespace mdfh::io;
-namespace protocol  = mdfh::protocol;
-namespace orderbook = mdfh::orderbook;
+namespace protocol    = mdfh::protocol;
+namespace orderbook   = mdfh::orderbook;
+namespace concurrency = mdfh::concurrency;
 
 namespace {
 
@@ -67,7 +68,7 @@ TEST_CASE("shard_for_symbol is deterministic and stays within bounds", "[shard_d
 TEST_CASE("ShardedPipeline rejects an unroutable order_id instead of guessing a shard", "[shard_demux]") {
     ShardedPipeline pipeline(2);
     auto bytes  = encode_cancel(1, /*order_id=*/999);  // never added
-    auto result = pipeline.demux(bytes);
+    auto result = pipeline.demux(bytes, concurrency::LatencyClock::now());
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error() == DemuxError::UnroutableOrderId);
 }
@@ -130,7 +131,7 @@ TEST_CASE("Mixed-symbol stream: each symbol's book ends up correct and isolated 
     for (const Expected& e : {Expected{&m1, shard_aapl}, Expected{&m2, shard_msft}, Expected{&m3, shard_aapl},
                                Expected{&m4, shard_goog}, Expected{&m5, shard_msft}, Expected{&m6, shard_aapl},
                                Expected{&m7, shard_msft}, Expected{&m8, shard_goog}, Expected{&m9, shard_amzn}}) {
-        auto result = pipeline.demux(*e.bytes);
+        auto result = pipeline.demux(*e.bytes, concurrency::LatencyClock::now());
         REQUIRE(result.has_value());
         REQUIRE(*result == e.shard);
     }
@@ -251,15 +252,15 @@ TEST_CASE("ShardedPipeline's order routing table stays bounded over a long add/c
 
     auto push_add = [&](protocol::OrderId id) {
         auto bytes = encode_add(++seq, id, sym, protocol::Side::Buy, 100, 10);
-        REQUIRE(pipeline.demux(bytes).has_value());
+        REQUIRE(pipeline.demux(bytes, concurrency::LatencyClock::now()).has_value());
     };
     auto push_cancel = [&](protocol::OrderId id) {
         auto bytes = encode_cancel(++seq, id);
-        REQUIRE(pipeline.demux(bytes).has_value());
+        REQUIRE(pipeline.demux(bytes, concurrency::LatencyClock::now()).has_value());
     };
     auto push_execute_full = [&](protocol::OrderId id) {
         auto bytes = encode_execute(++seq, id, /*executed_quantity=*/10);  // full fill: quantity was 10
-        REQUIRE(pipeline.demux(bytes).has_value());
+        REQUIRE(pipeline.demux(bytes, concurrency::LatencyClock::now()).has_value());
     };
 
     // Prime the working set.
