@@ -11,8 +11,9 @@ Every performance number in this document was measured in this repo's own
 benchmark binaries, on real hardware (native Apple Silicon macOS and a Linux
 Docker container), not estimated. Full detail and reproduction commands:
 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). Interactive reports:
-the [profiling & flame graph writeup](docs/perf/latency_report.html) and the
-[consolidated benchmark report](docs/benchmarks_report.html).
+
+- [profiling & flame graph writeup](docs/perf/latency_report.html) — GitHub renders this as source, download or clone locally to view interactively
+- [consolidated benchmark report](docs/benchmarks_report.html) — GitHub renders this as source, download or clone locally to view interactively
 
 ---
 
