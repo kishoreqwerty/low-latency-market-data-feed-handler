@@ -36,6 +36,24 @@ constexpr Symbol make_symbol(std::string_view s) {
     return sym;
 }
 
+// Hashes a Symbol's raw bytes (FNV-1a). std::array has no standard library
+// hash specialization, and this needs to be deterministic and
+// platform-independent (not implementation-defined, the way std::hash's
+// output is) so shard assignment (io/shard_demux.hpp) is stable across
+// builds and platforms.
+constexpr std::size_t hash_symbol(const Symbol& symbol) noexcept {
+    std::uint64_t hash = 1469598103934665603ull;  // FNV-1a offset basis
+    for (char c : symbol) {
+        hash ^= static_cast<unsigned char>(c);
+        hash *= 1099511628211ull;  // FNV-1a prime
+    }
+    return static_cast<std::size_t>(hash);
+}
+
+struct SymbolHash {
+    std::size_t operator()(const Symbol& symbol) const noexcept { return hash_symbol(symbol); }
+};
+
 // Every wire message is [type: u8][length: u16][payload...]; length covers
 // the whole message (header included) so the decoder can validate it.
 inline constexpr std::size_t kHeaderSize = 3;

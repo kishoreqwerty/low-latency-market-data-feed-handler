@@ -48,14 +48,47 @@ struct DepthSnapshot {
     std::vector<PriceLevelView> asks;  // best (lowest) first
 };
 
-// Maximum number of orders one book is expected to hold resting at once.
-// Bounds the pool allocator below -- a per-book capacity, not a message
-// volume figure (arbitrarily more messages than this can flow through over
-// the book's lifetime, as long as the resting count stays under the cap).
-inline constexpr std::size_t kMaxRestingOrdersPerBook = 100'000;
+// How many parallel shard pipelines this system supports (Phase 6+): a
+// small number governing thread/core count. Deliberately NOT what drives
+// the pool capacity below -- many symbols hash into each shard (see
+// io/shard_demux.hpp), so shard count and live-order-book count are
+// different numbers; see kMaxSymbols.
+inline constexpr std::size_t kMaxShards = 16;
+
+// How many distinct symbols' order books this system is sized to track
+// live at once. Phase 6 gives each DISTINCT SYMBOL its own OrderBook
+// (never merging two instruments into one book), and many symbols land in
+// the same shard via hashing -- so this, not kMaxShards, is what actually
+// drives the pool capacity below.
+inline constexpr std::size_t kMaxSymbols = 500;
+
+// Per-symbol working-set estimate: used only to pre-reserve each
+// OrderBook's own order_index_ hash table so it doesn't rehash during
+// normal operation. NOT the pool's capacity -- see kOrderPoolCapacity.
+inline constexpr std::size_t kExpectedRestingOrdersPerSymbol = 2'000;
+
+// The pool backing OrderPoolAllocator (object_pool.hpp) is a PROCESS-WIDE
+// singleton keyed purely by node type: every OrderBook instance, across
+// every symbol and every shard, draws from the SAME underlying
+// FixedBlockPool for a given node type -- not a separate pool per instance
+// (see object_pool.hpp's "Known limitation" note, which this constant
+// resolves). That means capacity must cover the system-wide total resting
+// orders across ALL live symbols combined:
+//
+//     kOrderPoolCapacity = kMaxSymbols * kExpectedRestingOrdersPerSymbol
+//                        = 500 * 2,000 = 1,000,000
+//
+// Sizing this for just one book's expected load (100,000, as it was before
+// Phase 6 introduced multiple concurrently-live books) would silently
+// exhaust the pool the moment a second or third symbol's book got busy,
+// even though each individual book stayed well within its own expected
+// size. See orderbook/test_object_pool.cpp for a test that fills
+// kMaxSymbols books to exactly this capacity and confirms none of them
+// throw.
+inline constexpr std::size_t kOrderPoolCapacity = kMaxSymbols * kExpectedRestingOrdersPerSymbol;
 
 template <typename T>
-using OrderPoolAllocator = PoolAllocator<T, kMaxRestingOrdersPerBook>;
+using OrderPoolAllocator = PoolAllocator<T, kOrderPoolCapacity>;
 
 // Single-symbol, single-threaded limit order book reconstructed from a feed
 // of Add/Cancel/Execute/Replace messages (not a matching engine -- the
@@ -69,7 +102,7 @@ using OrderPoolAllocator = PoolAllocator<T, kMaxRestingOrdersPerBook>;
 template <template <typename> class Alloc>
 class OrderBookT {
 public:
-    OrderBookT() { order_index_.reserve(kMaxRestingOrdersPerBook); }
+    OrderBookT() { order_index_.reserve(kExpectedRestingOrdersPerSymbol); }
 
     std::expected<void, ApplyError> apply(const protocol::AddOrder& msg);
     std::expected<void, ApplyError> apply(const protocol::CancelOrder& msg);
@@ -78,6 +111,14 @@ public:
 
     BestBidAsk best_bid_ask() const;
     DepthSnapshot depth_snapshot(std::size_t levels) const;
+
+    // True if order_id is currently resting (i.e. has not been cancelled or
+    // fully executed away). Lets callers that track their own order_id ->
+    // shard/symbol routing (see io/shard_demux.hpp) find out, after
+    // applying an ExecuteOrder, whether that order is now gone -- the wire
+    // message alone doesn't say whether a fill was partial or full, only
+    // the book knows after the fact.
+    bool has_order(protocol::OrderId order_id) const noexcept { return order_index_.contains(order_id); }
 
 private:
     using OrderList = std::list<RestingOrder, Alloc<RestingOrder>>;

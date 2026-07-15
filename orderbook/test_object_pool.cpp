@@ -1,5 +1,7 @@
 #include <list>
+#include <memory>
 #include <new>
+#include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -81,8 +83,8 @@ TEST_CASE("OrderBook (pool-backed) causes zero heap allocations for steady-state
 
     // Warm-up: prime a small working set of resting orders. Startup cost,
     // not the hot path, so this is allowed to touch the heap (it won't,
-    // since order counts here are trivially under kMaxRestingOrdersPerBook,
-    // but that's not what's being asserted in this block).
+    // since order counts here are trivially under kOrderPoolCapacity, but
+    // that's not what's being asserted in this block).
     constexpr protocol::Quantity kQty = 10;
     for (protocol::OrderId id = 1; id <= 100; ++id) {
         protocol::Side side   = (id % 2 == 0) ? protocol::Side::Buy : protocol::Side::Sell;
@@ -173,4 +175,48 @@ TEST_CASE("NaiveOrderBook (std::allocator) causes real heap allocations for the 
 
     REQUIRE(new_call_count() > 0);
     REQUIRE(delete_call_count() > 0);
+}
+
+TEST_CASE("Object pool capacity covers many concurrently-live symbol books, not just one",
+          "[object_pool][sharding]") {
+    // Phase 6 gives each DISTINCT SYMBOL its own OrderBook (see
+    // io/shard_demux.hpp), and the pool backing every OrderBook's
+    // containers is a single process-wide singleton shared across ALL of
+    // them (see object_pool.hpp). This simulates the worst case the
+    // capacity math in order_book.hpp is sized for: every one of
+    // kMaxSymbols books simultaneously holding kExpectedRestingOrdersPerSymbol
+    // resting orders -- exactly kOrderPoolCapacity orders system-wide. If
+    // the pool were still sized for one book's needs (as it was before
+    // Phase 6), this would start throwing std::bad_alloc partway through
+    // the second or third book, even though each individual book stays
+    // within its own expected size the whole time.
+    std::vector<std::unique_ptr<OrderBook>> books;
+    books.reserve(kMaxSymbols);
+
+    protocol::OrderId next_id = 1;
+    for (std::size_t s = 0; s < kMaxSymbols; ++s) {
+        books.push_back(std::make_unique<OrderBook>());
+        OrderBook& book = *books.back();
+        for (std::size_t i = 0; i < kExpectedRestingOrdersPerSymbol; ++i) {
+            protocol::Side side   = (i % 2 == 0) ? protocol::Side::Buy : protocol::Side::Sell;
+            protocol::Price price = 100 + static_cast<protocol::Price>(i % 1000);
+            auto result           = book.apply(protocol::AddOrder{
+                          .seq_num   = next_id,
+                          .order_id  = next_id,
+                          .symbol    = protocol::make_symbol("SYM"),
+                          .side      = side,
+                          .price     = price,
+                          .quantity  = 10,
+                          .timestamp = next_id,
+            });
+            REQUIRE(result.has_value());
+            ++next_id;
+        }
+    }
+
+    // Not just "didn't throw" -- spot-check a few books actually hold
+    // correct, live state under this full system-wide load.
+    REQUIRE(books.front()->best_bid_ask().bid.has_value());
+    REQUIRE(books[kMaxSymbols / 2]->best_bid_ask().bid.has_value());
+    REQUIRE(books.back()->best_bid_ask().bid.has_value());
 }
