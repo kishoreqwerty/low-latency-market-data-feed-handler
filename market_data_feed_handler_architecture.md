@@ -1,6 +1,6 @@
 # Low-Latency Market Data Feed Handler — Architecture Specification (v2, revised)
 
-**A from-scratch C++20/23 systems project targeting HFT / market-making roles (Akuna, Optiver, and similar)**
+**A from-scratch C++20/23 systems project targeting HFT / market-making companies**
 
 ---
 

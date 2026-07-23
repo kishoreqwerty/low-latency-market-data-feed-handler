@@ -123,19 +123,3 @@ Build one verified piece at a time. Each step has a **Done when** criterion — 
 
 ---
 
-## Phase 11 — README and polish
-
-- [ ] Architecture diagram (already built — reuse it)
-- [ ] All benchmark numbers from Phase 10, with brief explanation of *why* each design choice helped (tie back to the HLD's Key Design Decisions & Tradeoffs table)
-- [ ] Explicit "Production Considerations" section (already drafted in the Architecture Spec — copy it in, adjust if anything changed during build)
-- [ ] Short demo instructions (how to run the feed generator + pipeline + observe output)
-
-**Done when:** someone who has never seen the project can read the README top to bottom and understand what it does, why it's built the way it is, and see real evidence (numbers, not claims) that it works.
-
----
-
-## What NOT to do
-
-- Don't build Phase 7 (async I/O) before Phases 1-6 are individually correct — debugging concurrency bugs on top of unverified business logic is much harder than debugging them separately.
-- Don't skip the TSan run on the ring buffer (Phase 5) — this is the single most likely place for a subtle, interview-exposing bug.
-- Don't add kernel bypass networking, FPGA, or real exchange colocation — these are explicitly out of scope (see Architecture Spec Section 13) and would blow the timeline without adding proportional value for a portfolio project.

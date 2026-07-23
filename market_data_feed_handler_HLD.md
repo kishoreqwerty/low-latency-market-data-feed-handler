@@ -104,8 +104,3 @@ This is the section most useful for walking through out loud in an interview —
 
 Kernel bypass networking, FPGA acceleration, real exchange colocation, full ITCH/OUCH compliance, multi-feed failover/redundancy, crash recovery.
 
----
-
-## 11. How to Use This Document
-
-This HLD is the "what and why" — pair it with the full Architecture Specification document (component internals, folder structure, phased build plan) for the "how." In an interview, this document's Section 6 (Key Design Decisions & Tradeoffs) is the part worth having memorized well enough to discuss any row in depth, since that's the style of question Optiver and Akuna-style interviews are confirmed to ask.
